@@ -1,0 +1,100 @@
+on: [push, pull_request]
+name: cargo
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          components: rustfmt
+          toolchain: stable
+          profile: minimal
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: -- --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          components: clippy
+          toolchain: stable
+          profile: minimal
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all-features -- -D warnings
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all-features
+
+  readme:
+    name: readme
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - run: cargo install cargo-readme
+      - run: cargo readme > README.md && git diff --exit-code
+
+  deny:
+    name: deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: EmbarkStudios/cargo-deny-action@v1
+
+
