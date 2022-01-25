@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 
 #[tokio::main]
@@ -16,11 +16,17 @@ async fn main() {
 }
 
 fn app() -> Router {
-    Router::new().route("/", get(root))
+    Router::new()
+        .route("/", get(root))
+        .route("/attest", post(attest))
 }
 
 async fn root() -> &'static str {
     "Hello, World!"
+}
+
+async fn attest() -> Vec<u8> {
+    Vec::new()
 }
 
 #[cfg(test)]
@@ -42,5 +48,20 @@ mod tests {
 
         let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
         assert_eq!(&body[..], b"Hello, World!");
+    }
+
+    #[tokio::test]
+    async fn attest() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/attest")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+        assert_eq!(&body[..], b"");
     }
 }
