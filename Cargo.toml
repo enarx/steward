@@ -8,10 +8,12 @@ edition = "2021"
 [dependencies]
 tracing-subscriber = { version="0.3", features = ["env-filter"] }
 serde = { version = "^1.0.133", features = ["derive"] }
+axum = { version = "^0.4.3", features = ["headers"] }
 tokio = { version = "^1.15.0", features = ["full"] }
+hyper = { version = "0.14", features = ["full"] }
 tracing = "^0.1.29"
-axum = "^0.4.3"
+mime = "^0.3.16"
 
 [dev-dependencies]
-hyper = { version = "0.14", features = ["full"] }
 tower = { version = "0.4", features = ["util"] }
+http = "^0.2.6"
