@@ -7,6 +7,11 @@ license = "AGPL-3.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+pkcs10 = { git = "https://github.com/npmccallum/formats", branch = "patch", features = ["pem"] }
+der = { git = "https://github.com/npmccallum/formats", branch = "patch", features = ["alloc"] }
+x509 = { git = "https://github.com/npmccallum/formats", branch = "patch" }
+p256 = { version = "^0.10.1" }
+
 tracing-subscriber = { version="0.3", features = ["env-filter"] }
 serde = { version = "^1.0.133", features = ["derive"] }
 axum = { version = "^0.4.3", features = ["headers"] }
@@ -16,5 +21,6 @@ tracing = "^0.1.29"
 mime = "^0.3.16"
 
 [dev-dependencies]
-tower = { version = "0.4", features = ["util"] }
+tower = { version = "^0.4.11", features = ["util"] }
 http = "^0.2.6"
+rand = "^0.8.4"
