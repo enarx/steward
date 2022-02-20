@@ -13,14 +13,15 @@ spki = { git = "https://github.com/RustCrypto/formats" }
 x501 = { git = "https://github.com/RustCrypto/formats" }
 x509 = { git = "https://github.com/RustCrypto/formats" }
 p256 = { version = "^0.10.1" }
+zeroize = { version = "^1.5.2", features = ["alloc"] }
 
-tracing-subscriber = { version="0.3", features = ["env-filter"] }
-serde = { version = "^1.0.133", features = ["derive"] }
 axum = { version = "^0.4.3", features = ["headers"] }
-tokio = { version = "^1.15.0", features = ["full"] }
-hyper = { version = "0.14", features = ["full"] }
-tracing = "^0.1.29"
+clap = { version = "^3.0.14", features = ["derive"] }
+hyper = { version = "^0.14.17", features = ["full"] }
 mime = "^0.3.16"
+tokio = { version = "^1.15.0", features = ["full"] }
+tracing = "^0.1.29"
+tracing-subscriber = { version="^0.3.8", features = ["env-filter"] }
 
 [dev-dependencies]
 tower = { version = "^0.4.11", features = ["util"] }

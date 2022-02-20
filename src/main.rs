@@ -1,10 +1,13 @@
 use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::TypedHeader;
+use axum::extract::{Extension, TypedHeader};
 use axum::headers::ContentType;
 use axum::routing::post;
-use axum::Router;
+use axum::{AddExtensionLayer, Router};
 use hyper::StatusCode;
 use mime::Mime;
 
@@ -12,6 +15,9 @@ use der::{asn1::ObjectIdentifier, Decodable, Encodable};
 use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature, VerifyingKey};
 use pkcs10::{CertReq, Version};
+
+use clap::Parser;
+use zeroize::Zeroizing;
 
 const PKCS10: &str = "application/pkcs10";
 
@@ -22,25 +28,56 @@ const ECDSA_SHA256: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.4.3.
 //const ECDSA_SHA384: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.4.3.3");
 //const ECDSA_SHA512: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.4.3.4");
 
+#[derive(Clone, Debug, Parser)]
+struct Args {
+    #[clap(short, long)]
+    key: PathBuf,
+
+    #[clap(short, long)]
+    crt: PathBuf,
+}
+
+impl Args {
+    fn load(self) -> std::io::Result<State> {
+        Ok(State {
+            key: std::fs::read(self.key)?.into(),
+            crt: std::fs::read(self.crt)?.into(),
+            ord: AtomicUsize::default(),
+        })
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+struct State {
+    key: Zeroizing<Vec<u8>>,
+    crt: Vec<u8>,
+    ord: AtomicUsize,
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    let state = Args::parse().load().unwrap();
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
-        .serve(app().into_make_service())
+        .serve(app(state).into_make_service())
         .await
         .unwrap();
 }
 
-fn app() -> Router {
-    Router::new().route("/attest", post(attest))
+fn app(state: State) -> Router {
+    Router::new()
+        .route("/attest", post(attest))
+        .layer(AddExtensionLayer::new(Arc::new(state)))
 }
 
 async fn attest(
     TypedHeader(ct): TypedHeader<ContentType>,
     body: Bytes,
+    Extension(_state): Extension<Arc<State>>,
 ) -> Result<Vec<u8>, StatusCode> {
     // Ensure the correct mime type.
     let mime: Mime = PKCS10.parse().unwrap();
@@ -123,6 +160,17 @@ mod tests {
         use hyper::Body;
         use tower::ServiceExt; // for `app.oneshot()`
 
+        const CRT: &[u8] = include_bytes!("../crt.der");
+        const KEY: &[u8] = include_bytes!("../key.der");
+
+        fn state() -> State {
+            State {
+                key: KEY.to_owned().into(),
+                crt: CRT.into(),
+                ord: Default::default(),
+            }
+        }
+
         fn cr() -> Vec<u8> {
             // Create a keypair.
             let rng = rand::thread_rng();
@@ -179,7 +227,7 @@ mod tests {
                 .body(Body::from(cr()))
                 .unwrap();
 
-            let response = app().oneshot(request).await.unwrap();
+            let response = app(state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
 
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
@@ -194,7 +242,7 @@ mod tests {
                 .body(Body::from(cr()))
                 .unwrap();
 
-            let response = app().oneshot(request).await.unwrap();
+            let response = app(state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -207,7 +255,7 @@ mod tests {
                 .body(Body::from(cr()))
                 .unwrap();
 
-            let response = app().oneshot(request).await.unwrap();
+            let response = app(state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -220,7 +268,7 @@ mod tests {
                 .body(Body::empty())
                 .unwrap();
 
-            let response = app().oneshot(request).await.unwrap();
+            let response = app(state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -233,7 +281,7 @@ mod tests {
                 .body(Body::from(vec![0x01, 0x02, 0x03, 0x04]))
                 .unwrap();
 
-            let response = app().oneshot(request).await.unwrap();
+            let response = app(state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -249,7 +297,7 @@ mod tests {
                 .body(Body::from(cr))
                 .unwrap();
 
-            let response = app().oneshot(request).await.unwrap();
+            let response = app(state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
     }
