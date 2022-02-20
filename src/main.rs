@@ -115,7 +115,9 @@ mod tests {
         use p256::ecdsa::SigningKey;
         use p256::elliptic_curve::sec1::ToEncodedPoint;
         use pkcs10::CertReqInfo;
-        use x509::*;
+        use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
+        use x501::attr::AttributeTypeAndValue;
+        use x501::name::RelativeDistinguishedName;
 
         use http::{header::CONTENT_TYPE, Request};
         use hyper::Body;
@@ -131,7 +133,7 @@ mod tests {
             // Create a relative distinguished name.
             let mut rdn = RelativeDistinguishedName::new();
             rdn.add(AttributeTypeAndValue {
-                oid: x509::PKIX_AT_COMMON_NAME,
+                oid: x509::ext::pkix::oids::AT_COMMON_NAME,
                 value: Utf8String::new("foo").unwrap().into(),
             })
             .unwrap();

@@ -7,9 +7,11 @@ license = "AGPL-3.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-pkcs10 = { git = "https://github.com/npmccallum/formats", branch = "patch", features = ["pem"] }
-der = { git = "https://github.com/npmccallum/formats", branch = "patch", features = ["alloc"] }
-x509 = { git = "https://github.com/npmccallum/formats", branch = "patch" }
+pkcs10 = { git = "https://github.com/RustCrypto/formats", features = ["pem"] }
+der = { git = "https://github.com/RustCrypto/formats", features = ["alloc"] }
+spki = { git = "https://github.com/RustCrypto/formats" }
+x501 = { git = "https://github.com/RustCrypto/formats" }
+x509 = { git = "https://github.com/RustCrypto/formats" }
 p256 = { version = "^0.10.1" }
 
 tracing-subscriber = { version="0.3", features = ["env-filter"] }
