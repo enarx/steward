@@ -7,18 +7,22 @@ license = "AGPL-3.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+der = { git = "https://github.com/RustCrypto/formats", features = ["std"] }
 pkcs10 = { git = "https://github.com/RustCrypto/formats", features = ["pem"] }
-der = { git = "https://github.com/RustCrypto/formats", features = ["alloc"] }
+pkcs8 = { git = "https://github.com/RustCrypto/formats" }
+sec1 = { git = "https://github.com/RustCrypto/formats" }
 spki = { git = "https://github.com/RustCrypto/formats" }
-x501 = { git = "https://github.com/RustCrypto/formats" }
+x501 = { git = "https://github.com/RustCrypto/formats", features = ["std"] }
 x509 = { git = "https://github.com/RustCrypto/formats" }
 p256 = { version = "^0.10.1" }
 zeroize = { version = "^1.5.2", features = ["alloc"] }
 
 axum = { version = "^0.4.3", features = ["headers"] }
 clap = { version = "^3.0.14", features = ["derive"] }
+displaydoc = "^0.2.3"
 hyper = { version = "^0.14.17", features = ["full"] }
 mime = "^0.3.16"
+thiserror = "^1.0.30"
 tokio = { version = "^1.15.0", features = ["full"] }
 tracing = "^0.1.29"
 tracing-subscriber = { version="^0.3.8", features = ["env-filter"] }

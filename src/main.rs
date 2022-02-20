@@ -1,3 +1,5 @@
+mod ca;
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
@@ -47,7 +49,6 @@ impl Args {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 struct State {
     key: Zeroizing<Vec<u8>>,
@@ -77,7 +78,7 @@ fn app(state: State) -> Router {
 async fn attest(
     TypedHeader(ct): TypedHeader<ContentType>,
     body: Bytes,
-    Extension(_state): Extension<Arc<State>>,
+    Extension(state): Extension<Arc<State>>,
 ) -> Result<Vec<u8>, StatusCode> {
     // Ensure the correct mime type.
     let mime: Mime = PKCS10.parse().unwrap();
@@ -136,9 +137,10 @@ async fn attest(
 
     // TODO: validate attestation
     // TODO: validate other CSR fields
-    // TODO: generate certificate
 
-    Ok(Vec::new())
+    let ca = ca::CertificationAuthority::from_der(&state.crt, &state.key, &state.ord)
+        .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+    Ok(ca.issue(&cr).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?)
 }
 
 #[cfg(test)]
@@ -158,7 +160,8 @@ mod tests {
 
         use http::{header::CONTENT_TYPE, Request};
         use hyper::Body;
-        use tower::ServiceExt; // for `app.oneshot()`
+        use tower::ServiceExt;
+        use x509::Certificate; // for `app.oneshot()`
 
         const CRT: &[u8] = include_bytes!("../crt.der");
         const KEY: &[u8] = include_bytes!("../key.der");
@@ -231,7 +234,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::OK);
 
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            assert_eq!(&body[..], b"");
+            Certificate::from_der(&body).unwrap();
         }
 
         #[tokio::test]
