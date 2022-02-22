@@ -15,7 +15,7 @@ fn validate_milan_cert() {
 }
 
 #[test]
-fn validate_rome_cert() {
+fn validate_genoa_cert() {
     let mut file = fs::File::open("certs/Genoa.pem").unwrap();
     let mut hasher = Sha256::new();
     io::copy(&mut file, &mut hasher).expect("Failed to read cert file");
