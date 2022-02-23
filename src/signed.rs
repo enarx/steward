@@ -4,11 +4,11 @@ use ecdsa::signature::Signer;
 use pkcs8::PrivateKeyInfo;
 use sec1::EcPrivateKey;
 use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
+use x509::request::CertReqInfo;
+use x509::TbsCertificate;
 
 use displaydoc::Display;
-use pkcs10::CertReqInfo;
 use thiserror::Error;
-use x509::TbsCertificate;
 
 pub const ECPUBKEY: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.2.1");
 pub const NISTP256: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.3.1.7");

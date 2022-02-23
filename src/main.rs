@@ -19,10 +19,10 @@ use mime::Mime;
 
 use der::{Decodable, Encodable};
 use pkcs8::PrivateKeyInfo;
+use x509::time::{Time, Validity};
 use x509::TbsCertificate;
 
 use clap::Parser;
-use x501::time::{Time, Validity};
 use zeroize::Zeroizing;
 
 const PKCS10: &str = "application/pkcs10";
@@ -88,7 +88,7 @@ async fn attest(
     let cr = cr
         .verify(&cr.body().public_key)
         .or(Err(StatusCode::BAD_REQUEST))?;
-    if cr.version != pkcs10::Version::V1 {
+    if cr.version != x509::request::Version::V1 {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -142,10 +142,10 @@ mod tests {
         use der::asn1::{SetOfVec, Utf8String};
         use der::{Any, Encodable};
         use p256::elliptic_curve::sec1::ToEncodedPoint;
-        use pkcs10::CertReqInfo;
         use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
-        use x501::attr::AttributeTypeAndValue;
-        use x501::name::RelativeDistinguishedName;
+        use x509::attr::AttributeTypeAndValue;
+        use x509::name::RelativeDistinguishedName;
+        use x509::request::CertReqInfo;
 
         use http::{header::CONTENT_TYPE, Request};
         use hyper::Body;
@@ -201,7 +201,7 @@ mod tests {
 
             // Create a certification request information structure.
             let cri = CertReqInfo {
-                version: pkcs10::Version::V1,
+                version: x509::request::Version::V1,
                 attributes: SetOfVec::new(), // Extension requests go here.
                 subject: [rdn].into(),
                 public_key: spki,
