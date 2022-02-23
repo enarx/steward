@@ -40,7 +40,7 @@ impl Args {
     fn load(self) -> std::io::Result<State> {
         Ok(State {
             key: std::fs::read(self.key)?.into(),
-            crt: std::fs::read(self.crt)?.into(),
+            crt: std::fs::read(self.crt)?,
             ord: AtomicUsize::default(),
         })
     }
@@ -121,8 +121,8 @@ async fn attest(
         issuer: issuer.body().subject.clone(),
         validity,
         subject: issuer.body().subject.clone(), // FIXME
-        subject_public_key_info: cr.public_key.clone(),
-        issuer_unique_id: issuer.body().subject_unique_id.clone(),
+        subject_public_key_info: cr.public_key,
+        issuer_unique_id: issuer.body().subject_unique_id,
         subject_unique_id: None,
         extensions: None,
     };

@@ -127,7 +127,7 @@ impl<'a, B: Signable<'a>> Signed<'a, B> {
     pub fn sign(body: B, pki: &PrivateKeyInfo<'a>, buf: &'a mut Vec<u8>) -> Result<Self, Error> {
         let algo = body
             .algorithm()
-            .or(pki.signs_with())
+            .or_else(|| pki.signs_with())
             .ok_or(Error::Unsupported)?;
 
         buf.clear();
@@ -148,7 +148,7 @@ impl<'a, B: Signable<'a>> Signed<'a, B> {
                 Ok(Signed { body, algo, sign })
             }
 
-            _ => return Err(Error::Unsupported),
+            _ => Err(Error::Unsupported),
         }
     }
 
