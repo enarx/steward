@@ -1,34 +1,31 @@
-mod ca;
+mod signed;
+
+use signed::{CertReq, Certificate, SignsWith};
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use axum::body::Bytes;
 use axum::extract::{Extension, TypedHeader};
 use axum::headers::ContentType;
 use axum::routing::post;
 use axum::{AddExtensionLayer, Router};
+use der::asn1::UIntBytes;
 use hyper::StatusCode;
 use mime::Mime;
 
-use der::{asn1::ObjectIdentifier, Decodable, Encodable};
-use p256::ecdsa::signature::Verifier;
-use p256::ecdsa::{Signature, VerifyingKey};
-use pkcs10::{CertReq, Version};
+use der::{Decodable, Encodable};
+use pkcs8::PrivateKeyInfo;
+use x509::TbsCertificate;
 
 use clap::Parser;
+use x501::time::{Time, Validity};
 use zeroize::Zeroizing;
 
 const PKCS10: &str = "application/pkcs10";
-
-const ECPUBKEY: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.2.1");
-const NISTP256: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.3.1.7");
-//const ECDSA_SHA224: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.4.3.1");
-const ECDSA_SHA256: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.4.3.2");
-//const ECDSA_SHA384: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.4.3.3");
-//const ECDSA_SHA512: ObjectIdentifier = ObjectIdentifier::new("1.2.840.10045.4.3.4");
 
 #[derive(Clone, Debug, Parser)]
 struct Args {
@@ -86,61 +83,55 @@ async fn attest(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    // Decode the certification request.
+    // Decode and verify the certification request.
     let cr = CertReq::from_der(body.as_ref()).or(Err(StatusCode::BAD_REQUEST))?;
-    if cr.info.version != Version::V1 {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    // Ensure supported signature algorithm.
-    match cr.algorithm.oid {
-        ECDSA_SHA256 => (),
-        _ => return Err(StatusCode::BAD_REQUEST),
-    }
-
-    // Ensure supported signature parameters.
-    match cr.algorithm.parameters {
-        None => (),
-        Some(x) if x.is_null() => (),
-        _ => return Err(StatusCode::BAD_REQUEST),
-    }
-
-    // Ensure the public key is supported.
-    if cr.info.public_key.algorithm.oid != ECPUBKEY {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    // Ensure the curve is supported.
-    let curve = cr
-        .info
-        .public_key
-        .algorithm
-        .parameters
-        .ok_or(StatusCode::BAD_REQUEST)?
-        .oid()
+    let cr = cr
+        .verify(&cr.body().public_key)
         .or(Err(StatusCode::BAD_REQUEST))?;
-    if curve != NISTP256 {
+    if cr.version != pkcs10::Version::V1 {
         return Err(StatusCode::BAD_REQUEST);
     }
-
-    // Decode the signature.
-    let sig = cr.signature.as_bytes().ok_or(StatusCode::BAD_REQUEST)?;
-    let sig = Signature::from_der(sig).or(Err(StatusCode::BAD_REQUEST))?;
-
-    // Decode the key.
-    let key = cr.info.public_key.subject_public_key.to_vec();
-    let key = VerifyingKey::from_sec1_bytes(&key).or(Err(StatusCode::BAD_REQUEST))?;
-
-    // Verify the body.
-    let body = cr.info.to_vec().or(Err(StatusCode::BAD_REQUEST))?;
-    key.verify(&body, &sig).or(Err(StatusCode::BAD_REQUEST))?;
 
     // TODO: validate attestation
     // TODO: validate other CSR fields
 
-    let ca = ca::CertificationAuthority::from_der(&state.crt, &state.key, &state.ord)
-        .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
-    Ok(ca.issue(&cr).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?)
+    // Get the current time and the expiration of the cert.
+    let now = SystemTime::now();
+    let end = now + Duration::from_secs(60 * 60 * 24);
+    let validity = Validity {
+        not_before: Time::try_from(now).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?,
+        not_after: Time::try_from(end).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?,
+    };
+
+    // Get the next serial number.
+    let serial = state.ord.fetch_add(1, Ordering::SeqCst).to_be_bytes();
+    let serial = UIntBytes::new(&serial).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+
+    // Decode the signing certificate and key.
+    let issuer = Certificate::from_der(&state.crt).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+    let isskey = PrivateKeyInfo::from_der(&state.key).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+
+    // Create the new certificate.
+    let tbs = TbsCertificate {
+        version: x509::Version::V3,
+        serial_number: serial,
+        signature: isskey
+            .signs_with()
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
+        issuer: issuer.body().subject.clone(),
+        validity,
+        subject: issuer.body().subject.clone(), // FIXME
+        subject_public_key_info: cr.public_key.clone(),
+        issuer_unique_id: issuer.body().subject_unique_id.clone(),
+        subject_unique_id: None,
+        extensions: None,
+    };
+
+    let mut buf = Vec::new();
+    Ok(Certificate::sign(tbs, &isskey, &mut buf)
+        .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?
+        .to_vec()
+        .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?)
 }
 
 #[cfg(test)]
@@ -148,10 +139,8 @@ mod tests {
     mod attest {
         use super::super::*;
 
-        use der::asn1::{BitString, SetOfVec, Utf8String};
+        use der::asn1::{SetOfVec, Utf8String};
         use der::{Any, Encodable};
-        use p256::ecdsa::signature::Signer;
-        use p256::ecdsa::SigningKey;
         use p256::elliptic_curve::sec1::ToEncodedPoint;
         use pkcs10::CertReqInfo;
         use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
@@ -160,8 +149,7 @@ mod tests {
 
         use http::{header::CONTENT_TYPE, Request};
         use hyper::Body;
-        use tower::ServiceExt;
-        use x509::Certificate; // for `app.oneshot()`
+        use tower::ServiceExt; // for `app.oneshot()`
 
         const CRT: &[u8] = include_bytes!("../crt.der");
         const KEY: &[u8] = include_bytes!("../key.der");
@@ -174,12 +162,34 @@ mod tests {
             }
         }
 
-        fn cr() -> Vec<u8> {
+        // Returns a DER-encoded PrivateKeyInfo and SubjectPublicKeyInfo.
+        fn keypair() -> (Zeroizing<Vec<u8>>, Vec<u8>) {
+            let algo = AlgorithmIdentifier {
+                oid: signed::ECPUBKEY,
+                parameters: Some(Any::from(&signed::NISTP256)),
+            };
+
             // Create a keypair.
             let rng = rand::thread_rng();
             let prv = p256::SecretKey::random(rng);
             let pbl = prv.public_key();
             let enc = pbl.to_encoded_point(true);
+
+            // Create the storage structures.
+            let ecpk = prv.to_sec1_der().unwrap();
+            let pki = PrivateKeyInfo::new(algo, &ecpk);
+            let spki = SubjectPublicKeyInfo {
+                subject_public_key: enc.as_ref(),
+                algorithm: algo,
+            };
+
+            (pki.to_vec().unwrap().into(), spki.to_vec().unwrap())
+        }
+
+        fn cr() -> Vec<u8> {
+            let (pki, spki) = keypair();
+            let pki = PrivateKeyInfo::from_der(&pki).unwrap();
+            let spki = SubjectPublicKeyInfo::from_der(&spki).unwrap();
 
             // Create a relative distinguished name.
             let mut rdn = RelativeDistinguishedName::new();
@@ -194,31 +204,29 @@ mod tests {
                 version: pkcs10::Version::V1,
                 attributes: SetOfVec::new(), // Extension requests go here.
                 subject: [rdn].into(),
-                public_key: SubjectPublicKeyInfo {
-                    subject_public_key: enc.as_ref(),
-                    algorithm: AlgorithmIdentifier {
-                        oid: ECPUBKEY,
-                        parameters: Some(Any::from(&NISTP256)),
-                    },
-                },
+                public_key: spki,
             };
 
-            // Sign the body.
-            let bdy = cri.to_vec().unwrap();
-            let sig = SigningKey::try_from(prv).unwrap().sign(&bdy).to_der();
+            // Sign the request.
+            let mut buf = Vec::new();
+            CertReq::sign(cri, &pki, &mut buf)
+                .unwrap()
+                .to_vec()
+                .unwrap()
+        }
 
-            // Create the certificate request.
-            let csr = CertReq {
-                info: cri,
-                algorithm: AlgorithmIdentifier {
-                    oid: ECDSA_SHA256,
-                    parameters: None,
-                },
-                signature: BitString::from_bytes(sig.as_ref()).unwrap(),
-            };
+        #[test]
+        fn reencode() {
+            let encoded = cr();
 
-            // Encode the certificate request.
-            csr.to_vec().unwrap()
+            for byte in &encoded {
+                eprint!("{:02X}", byte);
+            }
+            eprintln!();
+
+            let decoded = CertReq::from_der(&encoded).unwrap();
+            let reencoded = decoded.to_vec().unwrap();
+            assert_eq!(encoded, reencoded);
         }
 
         #[tokio::test]
@@ -234,7 +242,10 @@ mod tests {
             assert_eq!(response.status(), StatusCode::OK);
 
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            Certificate::from_der(&body).unwrap();
+
+            let sub = Certificate::from_der(&body).unwrap();
+            let iss = Certificate::from_der(CRT).unwrap();
+            sub.verify(&iss.body().subject_public_key_info).unwrap();
         }
 
         #[tokio::test]

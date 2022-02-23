@@ -8,13 +8,15 @@ license = "AGPL-3.0"
 
 [dependencies]
 der = { git = "https://github.com/RustCrypto/formats", features = ["std"] }
-pkcs10 = { git = "https://github.com/RustCrypto/formats", features = ["pem"] }
+pkcs10 = { git = "https://github.com/RustCrypto/formats" }
 pkcs8 = { git = "https://github.com/RustCrypto/formats" }
 sec1 = { git = "https://github.com/RustCrypto/formats" }
 spki = { git = "https://github.com/RustCrypto/formats" }
 x501 = { git = "https://github.com/RustCrypto/formats", features = ["std"] }
 x509 = { git = "https://github.com/RustCrypto/formats" }
 p256 = { version = "^0.10.1" }
+ecdsa = { version = "^0.13.4" }
+elliptic-curve = { version = "^0.11.12" }
 zeroize = { version = "^1.5.2", features = ["alloc"] }
 
 axum = { version = "^0.4.3", features = ["headers"] }
