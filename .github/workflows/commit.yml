@@ -1,8 +1,0 @@
-on: [push, pull_request]
-name: commit
-jobs:
-  message:
-    name: message
-    runs-on: ubuntu-latest
-    steps:
-      - uses: mristin/opinionated-commit-message@v2.3.4
