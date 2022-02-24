@@ -1,6 +1,6 @@
-mod signed;
+mod crypto;
 
-use signed::{CertReq, Certificate, SignsWith};
+use crypto::*;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -17,7 +17,7 @@ use der::asn1::UIntBytes;
 use hyper::StatusCode;
 use mime::Mime;
 
-use der::{Decodable, Encodable};
+use der::Decodable;
 use pkcs8::PrivateKeyInfo;
 use x509::time::{Time, Validity};
 use x509::TbsCertificate;
@@ -117,7 +117,7 @@ async fn attest(
         serial_number: serial,
         signature: isskey
             .signs_with()
-            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
+            .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?,
         issuer: issuer.body().subject.clone(),
         validity,
         subject: issuer.body().subject.clone(), // FIXME
@@ -127,10 +127,8 @@ async fn attest(
         extensions: None,
     };
 
-    let mut buf = Vec::new();
-    Ok(Certificate::sign(tbs, &isskey, &mut buf)
-        .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?
-        .to_vec()
+    Ok(tbs
+        .sign(&isskey)
         .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?)
 }
 
@@ -140,9 +138,8 @@ mod tests {
         use super::super::*;
 
         use der::asn1::{SetOfVec, Utf8String};
-        use der::{Any, Encodable};
-        use p256::elliptic_curve::sec1::ToEncodedPoint;
-        use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
+        use der::Encodable;
+
         use x509::attr::AttributeTypeAndValue;
         use x509::name::RelativeDistinguishedName;
         use x509::request::CertReqInfo;
@@ -162,34 +159,10 @@ mod tests {
             }
         }
 
-        // Returns a DER-encoded PrivateKeyInfo and SubjectPublicKeyInfo.
-        fn keypair() -> (Zeroizing<Vec<u8>>, Vec<u8>) {
-            let algo = AlgorithmIdentifier {
-                oid: signed::ECPUBKEY,
-                parameters: Some(Any::from(&signed::NISTP256)),
-            };
-
-            // Create a keypair.
-            let rng = rand::thread_rng();
-            let prv = p256::SecretKey::random(rng);
-            let pbl = prv.public_key();
-            let enc = pbl.to_encoded_point(true);
-
-            // Create the storage structures.
-            let ecpk = prv.to_sec1_der().unwrap();
-            let pki = PrivateKeyInfo::new(algo, &ecpk);
-            let spki = SubjectPublicKeyInfo {
-                subject_public_key: enc.as_ref(),
-                algorithm: algo,
-            };
-
-            (pki.to_vec().unwrap().into(), spki.to_vec().unwrap())
-        }
-
         fn cr() -> Vec<u8> {
-            let (pki, spki) = keypair();
-            let pki = PrivateKeyInfo::from_der(&pki).unwrap();
-            let spki = SubjectPublicKeyInfo::from_der(&spki).unwrap();
+            let pki = PrivateKeyInfo::generate(NISTP256).unwrap();
+            let pki = PrivateKeyInfo::from_der(pki.as_ref()).unwrap();
+            let spki = pki.public_key().unwrap();
 
             // Create a relative distinguished name.
             let mut rdn = RelativeDistinguishedName::new();
@@ -208,11 +181,7 @@ mod tests {
             };
 
             // Sign the request.
-            let mut buf = Vec::new();
-            CertReq::sign(cri, &pki, &mut buf)
-                .unwrap()
-                .to_vec()
-                .unwrap()
+            cri.sign(&pki).unwrap()
         }
 
         #[test]
