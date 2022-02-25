@@ -7,11 +7,11 @@ license = "AGPL-3.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-der = { git = "https://github.com/RustCrypto/formats", features = ["std"] }
-pkcs8 = { git = "https://github.com/RustCrypto/formats" }
-sec1 = { git = "https://github.com/RustCrypto/formats", features = ["std"] }
-spki = { git = "https://github.com/RustCrypto/formats" }
-x509 = { git = "https://github.com/RustCrypto/formats", features = ["std"] }
+der = { git = "https://github.com/npmccallum/formats", branch = "steward", features = ["std"] }
+pkcs8 = { git = "https://github.com/npmccallum/formats", branch = "steward" }
+sec1 = { git = "https://github.com/npmccallum/formats", branch = "steward", features = ["std"] }
+spki = { git = "https://github.com/npmccallum/formats", branch = "steward" }
+x509 = { git = "https://github.com/npmccallum/formats", branch = "steward", features = ["std"] }
 ring = { version = "0.16.20", features = ["std"] }
 zeroize = { version = "^1.5.2", features = ["alloc"] }
 
