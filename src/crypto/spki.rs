@@ -2,7 +2,7 @@ use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
 
 use anyhow::{anyhow, Result};
 
-use super::{ECDSA_SHA256, ECDSA_SHA384, ECPUBKEY, NISTP256, NISTP384};
+use super::oids::*;
 
 pub trait SubjectPublicKeyInfoExt {
     /// Verifies a signature

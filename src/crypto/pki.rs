@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use pkcs8::{ObjectIdentifier, PrivateKeyInfo, SubjectPublicKeyInfo};
 use zeroize::Zeroizing;
 
-use super::{ECDSA_SHA256, ECDSA_SHA384, ECPUBKEY, NISTP256, NISTP384};
+use super::oids::*;
 
 pub trait PrivateKeyInfoExt {
     /// Generates a keypair
@@ -70,12 +70,12 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
     fn signs_with(&self) -> Result<AlgorithmIdentifier> {
         match self.algorithm.oids()? {
             (ECPUBKEY, Some(NISTP256)) => Ok(AlgorithmIdentifier {
-                oid: super::ECDSA_SHA256,
+                oid: ECDSA_SHA256,
                 parameters: None,
             }),
 
             (ECPUBKEY, Some(NISTP384)) => Ok(AlgorithmIdentifier {
-                oid: super::ECDSA_SHA384,
+                oid: ECDSA_SHA384,
                 parameters: None,
             }),
 
