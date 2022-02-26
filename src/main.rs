@@ -1,6 +1,7 @@
 mod crypto;
 
 use crypto::*;
+use x509::request::CertReq;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -20,7 +21,7 @@ use mime::Mime;
 use der::Decodable;
 use pkcs8::PrivateKeyInfo;
 use x509::time::{Time, Validity};
-use x509::TbsCertificate;
+use x509::{Certificate, TbsCertificate};
 
 use clap::Parser;
 use zeroize::Zeroizing;
@@ -85,12 +86,7 @@ async fn attest(
 
     // Decode and verify the certification request.
     let cr = CertReq::from_der(body.as_ref()).or(Err(StatusCode::BAD_REQUEST))?;
-    let cr = cr
-        .verify(&cr.body().public_key)
-        .or(Err(StatusCode::BAD_REQUEST))?;
-    if cr.version != x509::request::Version::V1 {
-        return Err(StatusCode::BAD_REQUEST);
-    }
+    let cr = cr.verify().or(Err(StatusCode::BAD_REQUEST))?;
 
     // TODO: validate attestation
     // TODO: validate other CSR fields
@@ -118,15 +114,16 @@ async fn attest(
         signature: isskey
             .signs_with()
             .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?,
-        issuer: issuer.body().subject.clone(),
+        issuer: issuer.tbs_certificate.subject.clone(),
         validity,
-        subject: issuer.body().subject.clone(), // FIXME
+        subject: issuer.tbs_certificate.subject.clone(), // FIXME
         subject_public_key_info: cr.public_key,
-        issuer_unique_id: issuer.body().subject_unique_id,
+        issuer_unique_id: issuer.tbs_certificate.subject_unique_id,
         subject_unique_id: None,
         extensions: None,
     };
 
+    // Sign the certificate.
     Ok(tbs
         .sign(&isskey)
         .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?)
@@ -135,7 +132,7 @@ async fn attest(
 #[cfg(test)]
 mod tests {
     mod attest {
-        use super::super::*;
+        use crate::*;
 
         use der::asn1::{SetOfVec, Utf8String};
         use der::Encodable;
@@ -214,7 +211,7 @@ mod tests {
 
             let sub = Certificate::from_der(&body).unwrap();
             let iss = Certificate::from_der(CRT).unwrap();
-            sub.verify(&iss.body().subject_public_key_info).unwrap();
+            iss.tbs_certificate.verify(&sub).unwrap();
         }
 
         #[tokio::test]
