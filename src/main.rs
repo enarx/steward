@@ -211,7 +211,7 @@ mod tests {
 
             let sub = Certificate::from_der(&body).unwrap();
             let iss = Certificate::from_der(CRT).unwrap();
-            iss.tbs_certificate.verify(&sub).unwrap();
+            iss.tbs_certificate.verify_crt(&sub).unwrap();
         }
 
         #[tokio::test]

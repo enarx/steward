@@ -81,7 +81,7 @@ impl<'a> PkiPath<'a> {
         mut issuer: &'b TbsCertificate<'b>,
     ) -> Result<&'b TbsCertificate<'a>> {
         for cert in &self.0 {
-            issuer = issuer.verify(cert)?;
+            issuer = issuer.verify_crt(cert)?;
         }
 
         Ok(issuer)
