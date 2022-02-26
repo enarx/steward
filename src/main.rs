@@ -145,8 +145,8 @@ mod tests {
         use hyper::Body;
         use tower::ServiceExt; // for `app.oneshot()`
 
-        const CRT: &[u8] = include_bytes!("../crt.der");
-        const KEY: &[u8] = include_bytes!("../key.der");
+        const CRT: &[u8] = include_bytes!("../certs/test/crt.der");
+        const KEY: &[u8] = include_bytes!("../certs/test/key.der");
 
         fn state() -> State {
             State {
