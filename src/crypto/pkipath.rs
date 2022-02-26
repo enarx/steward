@@ -95,18 +95,40 @@ mod verify {
 
         #[test]
         fn genoa() {
-            const GENOA: &str = include_str!("../../certs/amd/genoa.pem");
-            let all = PkiPath::parse_pem(GENOA).unwrap();
+            const CHAIN: &str = include_str!("../../certs/amd/genoa.pem");
+
+            // Verify that validation succeeds
+            let all = PkiPath::parse_pem(CHAIN).unwrap();
             let path = PkiPath::from_ders(&all).unwrap();
             path.verify(&path[0].tbs_certificate).unwrap();
+
+            // Verify that validation fails when modified
+            for i in 0..all.len() {
+                let mut modified = all.clone();
+                *modified[i].last_mut().unwrap() = 0;
+
+                let path = PkiPath::from_ders(&modified).unwrap();
+                path.verify(&path[0].tbs_certificate).unwrap_err();
+            }
         }
 
         #[test]
         fn milan() {
-            const MILAN: &str = include_str!("../../certs/amd/milan.pem");
-            let all = PkiPath::parse_pem(MILAN).unwrap();
+            const CHAIN: &str = include_str!("../../certs/amd/milan.pem");
+
+            // Verify that validation succeeds
+            let all = PkiPath::parse_pem(CHAIN).unwrap();
             let path = PkiPath::from_ders(&all).unwrap();
             path.verify(&path[0].tbs_certificate).unwrap();
+
+            // Verify that validation fails when modified
+            for i in 0..all.len() {
+                let mut modified = all.clone();
+                *modified[i].last_mut().unwrap() = 0;
+
+                let path = PkiPath::from_ders(&modified).unwrap();
+                path.verify(&path[0].tbs_certificate).unwrap_err();
+            }
         }
     }
 }
