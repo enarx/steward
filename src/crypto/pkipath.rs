@@ -130,6 +130,10 @@ mod verify {
                 path.verify(&path[0].tbs_certificate).unwrap_err();
             }
         }
+    }
+
+    mod intel {
+        use super::super::PkiPath;
 
         #[test]
         fn sgx() {
