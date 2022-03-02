@@ -143,6 +143,8 @@ mod tests {
 
         use http::{header::CONTENT_TYPE, Request};
         use hyper::Body;
+        use ring::signature::Signature;
+        use spki::PublicKeyDocument;
         use tower::ServiceExt; // for `app.oneshot()`
 
         const CRT: &[u8] = include_bytes!("../certs/test/crt.der");
@@ -179,6 +181,108 @@ mod tests {
 
             // Sign the request.
             cri.sign(&pki).unwrap()
+        }
+
+        #[test]
+        fn test_milan_validation() {
+            use crate::crypto;
+            use der::Document;
+            use sha2::{Digest, Sha384};
+            use std::fs;
+            let test_file = fs::read("tests/test1_le.bin").unwrap();
+            assert_eq!(test_file.len(), 0x4A0, "attestation blob size");
+
+            let test_message = &test_file[..0x2A0];
+
+            let test_signature = &test_file[0x2A0..];
+            assert_eq!(test_signature.len(), 0x0200, "attestation signature size");
+
+            let r_value = &test_signature[..0x48];
+            assert_eq!(r_value.len(), 0x48);
+
+            let s_value = &test_signature[0x48..0x90];
+            assert_eq!(s_value.len(), 0x48);
+
+            // File is Little Endian, we need Big Endian
+            let big_endian_signature = {
+                let mut values = vec![0u8; 0];
+                let mut r_temp = r_value.to_vec();
+                let mut s_temp = s_value.to_vec();
+                r_temp.reverse();
+                s_temp.reverse();
+                for v in r_temp {
+                    values.push(v);
+                }
+                for v in s_temp {
+                    values.push(v);
+                }
+                values
+            };
+            assert_eq!(big_endian_signature.len(), 0x90);
+            //eprintln!("R={:?}", r_value);
+            //eprintln!("S={:?}", s_value);
+            //panic!("");
+
+            let data_hash_value = Sha384::digest(&test_file[..0x2A0]);
+            assert_eq!(data_hash_value.len(), 48, "sha-384 is 48 bytes long");
+
+            const MILAN_VCEK: &str = include_str!("../certs/amd/milan_vcek.pem");
+            let veck = PkiPath::parse_pem(MILAN_VCEK).unwrap();
+            let vcek_path = PkiPath::from_ders(&veck).unwrap();
+            assert_eq!(vcek_path.len(), 1, "The SNP cert is just one cert");
+            let the_cert = vcek_path.first().unwrap();
+
+            println!(
+                "Signing algorithm {:?}",
+                the_cert.tbs_certificate.subject_public_key_info.algorithm
+            );
+
+            println!(
+                "algo.oid: {:?}",
+                the_cert
+                    .tbs_certificate
+                    .subject_public_key_info
+                    .algorithm
+                    .oid
+            );
+
+            println!(
+                "algo.oid = {:?}",
+                the_cert
+                    .tbs_certificate
+                    .subject_public_key_info
+                    .algorithm
+                    .oids()
+                    .unwrap()
+            );
+            println!(
+                "algo.parameters = {:?}",
+                the_cert
+                    .tbs_certificate
+                    .subject_public_key_info
+                    .algorithm
+                    .parameters
+            );
+
+            /*
+
+            algo.oid = (ObjectIdentifier(1.2.840.10045.2.1), Some(ObjectIdentifier(1.3.132.0.34)))
+            algo.parameters = Some(Any { tag: Tag(0x06: OBJECT IDENTIFIER), value: ByteSlice { length: Length(5), inner: [43, 129, 4, 0, 34] } })
+
+             */
+
+            match the_cert.tbs_certificate.verify_raw(
+                test_message,
+                the_cert.tbs_certificate.subject_public_key_info.algorithm,
+                big_endian_signature.as_slice(),
+            ) {
+                Ok(_) => {
+                    assert!(true, "Message passed");
+                }
+                Err(e) => {
+                    assert!(false, "Message invalid {}", e);
+                }
+            }
         }
 
         #[test]

@@ -55,10 +55,10 @@ impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
                             ((SHA256, None), 32, 1) => Ok(SHA256),
                             ((SHA384, None), 48, 1) => Ok(SHA384),
                             ((SHA512, None), 64, 1) => Ok(SHA512),
-                            _ => Err(anyhow!("unsupported")),
+                            _ => Err(anyhow!("unsupported - p.oids()?")),
                         }
                     }
-                    _ => Err(anyhow!("unsupported")),
+                    _ => Err(anyhow!("unsupported - algo = mask.oid...")),
                 }?;
 
                 // Prepare for validation.
@@ -66,10 +66,10 @@ impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
                     ((SHA256, None), SHA256) => &RSA_PSS_2048_8192_SHA256,
                     ((SHA384, None), SHA384) => &RSA_PSS_2048_8192_SHA384,
                     ((SHA512, None), SHA512) => &RSA_PSS_2048_8192_SHA512,
-                    _ => return Err(anyhow!("unsupported")),
+                    _ => return Err(anyhow!("unsupported - hash.oids()?")),
                 }
             }
-            _ => return Err(anyhow!("unsupported")),
+            _ => return Err(anyhow!("unsupported - VerAgl match")),
         };
 
         let upk = UnparsedPublicKey::new(alg, self.subject_public_key);
