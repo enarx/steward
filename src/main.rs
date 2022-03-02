@@ -132,10 +132,11 @@ async fn attest(
 #[cfg(test)]
 mod tests {
     mod attest {
+        use crate::crypto::oids::ECDSA_SHA384;
         use crate::*;
 
         use der::asn1::{SetOfVec, Utf8String};
-        use der::Encodable;
+        use der::{Any, Encodable, Sequence};
 
         use x509::attr::AttributeTypeAndValue;
         use x509::name::RelativeDistinguishedName;
@@ -185,6 +186,16 @@ mod tests {
 
         #[test]
         fn test_milan_validation() {
+            // ECDSA-Sig-Value ::= SEQUENCE {
+            //    r INTEGER,
+            //    s INTEGER
+            //}
+            #[derive(Clone, Debug, Sequence)]
+            struct EcdsaSig<'a> {
+                r: UIntBytes<'a>,
+                s: UIntBytes<'a>,
+            }
+
             use crate::crypto;
             use der::Document;
             use sha2::{Digest, Sha384};
@@ -197,28 +208,19 @@ mod tests {
             let test_signature = &test_file[0x2A0..];
             assert_eq!(test_signature.len(), 0x0200, "attestation signature size");
 
-            let r_value = &test_signature[..0x48];
-            assert_eq!(r_value.len(), 0x48);
+            let mut r = test_signature[..0x48].to_vec();
+            r.reverse();
 
-            let s_value = &test_signature[0x48..0x90];
-            assert_eq!(s_value.len(), 0x48);
+            let mut s = test_signature[0x48..0x90].to_vec();
+            s.reverse();
 
-            // File is Little Endian, we need Big Endian
-            let big_endian_signature = {
-                let mut values = vec![0u8; 0];
-                let mut r_temp = r_value.to_vec();
-                let mut s_temp = s_value.to_vec();
-                r_temp.reverse();
-                s_temp.reverse();
-                for v in r_temp {
-                    values.push(v);
-                }
-                for v in s_temp {
-                    values.push(v);
-                }
-                values
+            let ecdsa = EcdsaSig {
+                r: UIntBytes::new(&r).unwrap(),
+                s: UIntBytes::new(&s).unwrap(),
             };
-            assert_eq!(big_endian_signature.len(), 0x90);
+
+            let der = ecdsa.to_vec().unwrap();
+
             //eprintln!("R={:?}", r_value);
             //eprintln!("S={:?}", s_value);
             //panic!("");
@@ -273,8 +275,11 @@ mod tests {
 
             match the_cert.tbs_certificate.verify_raw(
                 test_message,
-                the_cert.tbs_certificate.subject_public_key_info.algorithm,
-                big_endian_signature.as_slice(),
+                pkcs8::AlgorithmIdentifier {
+                    oid: ECDSA_SHA384,
+                    parameters: None,
+                },
+                &der,
             ) {
                 Ok(_) => {
                     assert!(true, "Message passed");
