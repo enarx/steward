@@ -1,12 +1,25 @@
-use der::{Decodable, Encodable};
-use sec1::EcPrivateKey;
-use spki::AlgorithmIdentifier;
-
 use anyhow::{anyhow, Result};
 use pkcs8::{ObjectIdentifier, PrivateKeyInfo, SubjectPublicKeyInfo};
 use zeroize::Zeroizing;
 
-use super::oids::*;
+use der::{Decodable, Encodable};
+use sec1::EcPrivateKey;
+use spki::AlgorithmIdentifier;
+
+use const_oid::db::rfc5912::{
+    ECDSA_WITH_SHA_256, ECDSA_WITH_SHA_384, ID_EC_PUBLIC_KEY as ECPK, SECP_256_R_1 as P256,
+    SECP_384_R_1 as P384,
+};
+
+const ES256: AlgorithmIdentifier<'static> = AlgorithmIdentifier {
+    oid: ECDSA_WITH_SHA_256,
+    parameters: None,
+};
+
+const ES384: AlgorithmIdentifier<'static> = AlgorithmIdentifier {
+    oid: ECDSA_WITH_SHA_384,
+    parameters: None,
+};
 
 pub trait PrivateKeyInfoExt {
     /// Generates a keypair
@@ -37,12 +50,12 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
         let rand = ring::rand::SystemRandom::new();
 
         let doc = match oid {
-            NISTP256 => {
+            P256 => {
                 use ring::signature::{EcdsaKeyPair, ECDSA_P256_SHA256_ASN1_SIGNING as ALG};
                 EcdsaKeyPair::generate_pkcs8(&ALG, &rand)?
             }
 
-            NISTP384 => {
+            P384 => {
                 use ring::signature::{EcdsaKeyPair, ECDSA_P384_SHA384_ASN1_SIGNING as ALG};
                 EcdsaKeyPair::generate_pkcs8(&ALG, &rand)?
             }
@@ -55,7 +68,7 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
 
     fn public_key(&self) -> Result<SubjectPublicKeyInfo> {
         match self.algorithm.oids()? {
-            (ECPUBKEY, ..) => {
+            (ECPK, ..) => {
                 let ec = EcPrivateKey::from_der(self.private_key)?;
                 let pk = ec.public_key.ok_or_else(|| anyhow!("missing public key"))?;
                 Ok(SubjectPublicKeyInfo {
@@ -69,30 +82,22 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
 
     fn signs_with(&self) -> Result<AlgorithmIdentifier> {
         match self.algorithm.oids()? {
-            (ECPUBKEY, Some(NISTP256)) => Ok(AlgorithmIdentifier {
-                oid: ECDSA_SHA256,
-                parameters: None,
-            }),
-
-            (ECPUBKEY, Some(NISTP384)) => Ok(AlgorithmIdentifier {
-                oid: ECDSA_SHA384,
-                parameters: None,
-            }),
-
+            (ECPK, Some(P256)) => Ok(ES256),
+            (ECPK, Some(P384)) => Ok(ES384),
             _ => return Err(anyhow!("unsupported")),
         }
     }
 
     fn sign(&self, body: &[u8], algo: AlgorithmIdentifier) -> Result<Vec<u8>> {
         let rng = ring::rand::SystemRandom::new();
-        match (self.algorithm.oids()?, algo.oids()?) {
-            ((ECPUBKEY, Some(NISTP256)), (ECDSA_SHA256, None)) => {
+        match (self.algorithm.oids()?, algo) {
+            ((ECPK, Some(P256)), ES256) => {
                 use ring::signature::{EcdsaKeyPair, ECDSA_P256_SHA256_ASN1_SIGNING as ALG};
                 let kp = EcdsaKeyPair::from_pkcs8(&ALG, &self.to_vec()?)?;
                 Ok(kp.sign(&rng, body)?.as_ref().to_vec())
             }
 
-            ((ECPUBKEY, Some(NISTP384)), (ECDSA_SHA384, None)) => {
+            ((ECPK, Some(P384)), ES384) => {
                 use ring::signature::{EcdsaKeyPair, ECDSA_P384_SHA384_ASN1_SIGNING as ALG};
                 let kp = EcdsaKeyPair::from_pkcs8(&ALG, &self.to_vec()?)?;
                 Ok(kp.sign(&rng, body)?.as_ref().to_vec())

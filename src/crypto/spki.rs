@@ -1,11 +1,19 @@
-use super::oids::*;
-
-use der::{Decodable, Sequence};
+use const_oid::ObjectIdentifier;
+use der::{Any, Decodable, Sequence};
 use ring::signature::VerificationAlgorithm as VerAlg;
 use ring::signature::*;
 use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
 
+use const_oid::db::rfc5912::{
+    ECDSA_WITH_SHA_256, ECDSA_WITH_SHA_384, ID_EC_PUBLIC_KEY as ECPK, ID_MGF_1, ID_RSASSA_PSS,
+    ID_SHA_256 as SHA256, ID_SHA_384 as SHA384, ID_SHA_512 as SHA512, RSA_ENCRYPTION as RSA,
+    SECP_256_R_1 as P256, SECP_384_R_1 as P384,
+};
+
 use anyhow::{anyhow, Result};
+
+const ES256: (ObjectIdentifier, Option<Any<'static>>) = (ECDSA_WITH_SHA_256, None);
+const ES384: (ObjectIdentifier, Option<Any<'static>>) = (ECDSA_WITH_SHA_384, None);
 
 #[derive(Clone, Debug, PartialEq, Eq, Sequence)]
 pub struct RsaSsaPssParams<'a> {
@@ -36,9 +44,9 @@ pub trait SubjectPublicKeyInfoExt {
 impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
     fn verify(&self, body: &[u8], algo: AlgorithmIdentifier, sign: &[u8]) -> Result<()> {
         let alg: &'static dyn VerAlg = match (self.algorithm.oids()?, (algo.oid, algo.parameters)) {
-            ((ECPUBKEY, Some(NISTP256)), (ECDSA_SHA256, None)) => &ECDSA_P256_SHA256_ASN1,
-            ((ECPUBKEY, Some(NISTP384)), (ECDSA_SHA384, None)) => &ECDSA_P384_SHA384_ASN1,
-            ((RSA_ES_PKCS1_V1_5, None), (RSA_SSA_PSS, Some(p))) => {
+            ((ECPK, Some(P256)), ES256) => &ECDSA_P256_SHA256_ASN1,
+            ((ECPK, Some(P384)), ES384) => &ECDSA_P384_SHA384_ASN1,
+            ((RSA, None), (ID_RSASSA_PSS, Some(p))) => {
                 // Decompose the RSA PSS parameters.
                 let RsaSsaPssParams {
                     hash_algorithm: hash,
@@ -49,7 +57,7 @@ impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
 
                 // Validate the sanity of the mask algorithm.
                 let algo = match (mask.oid, mask.parameters) {
-                    (RSA_MGF1, Some(p)) => {
+                    (ID_MGF_1, Some(p)) => {
                         let p = p.decode_into::<AlgorithmIdentifier>()?;
                         match (p.oids()?, salt, tfld) {
                             ((SHA256, None), 32, 1) => Ok(SHA256),

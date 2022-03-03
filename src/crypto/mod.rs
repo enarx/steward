@@ -1,5 +1,3 @@
-pub mod oids;
-
 mod cert;
 mod certreq;
 mod pki;

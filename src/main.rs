@@ -157,7 +157,9 @@ mod tests {
         }
 
         fn cr() -> Vec<u8> {
-            let pki = PrivateKeyInfo::generate(oids::NISTP256).unwrap();
+            use const_oid::db::rfc5912::SECP_256_R_1 as P256;
+
+            let pki = PrivateKeyInfo::generate(P256).unwrap();
             let pki = PrivateKeyInfo::from_der(pki.as_ref()).unwrap();
             let spki = pki.public_key().unwrap();
 
