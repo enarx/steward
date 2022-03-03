@@ -253,7 +253,7 @@ mod tests {
             let the_cert = vcek_path.first().unwrap();
 
             match the_cert.tbs_certificate.verify_raw(
-                data_hash_value_long.as_slice(),
+                &test_file[..0x2A0],
                 pkcs8::AlgorithmIdentifier {
                     oid: ECDSA_SHA384,
                     parameters: None,
