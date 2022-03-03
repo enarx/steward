@@ -200,7 +200,7 @@ mod tests {
             use der::Document;
             use sha2::{Digest, Sha384};
             use std::fs;
-            let test_file = fs::read("tests/test1_le.bin").unwrap();
+            let test_file = fs::read("tests/guest_report.bin").unwrap();
             assert_eq!(test_file.len(), 0x4A0, "attestation blob size");
 
             let test_message = test_file[..0x2A0].to_vec();
@@ -234,6 +234,18 @@ mod tests {
             println!("Message hash: {:02X?}", data_hash_value);
             assert_eq!(data_hash_value.len(), 48, "sha-384 is 48 bytes long");
 
+            let data_hash_value_long = {
+                let mut temp = vec![0u8; 64];
+                let mut i: usize = 0;
+                for val in data_hash_value {
+                    temp[i] = val;
+                    i += 1;
+                }
+                temp
+            };
+
+            println!("Message hash long: {:02X?}", data_hash_value_long);
+
             const MILAN_VCEK: &str = include_str!("../certs/amd/milan_vcek.pem");
             let veck = PkiPath::parse_pem(MILAN_VCEK).unwrap();
             let vcek_path = PkiPath::from_ders(&veck).unwrap();
@@ -241,196 +253,7 @@ mod tests {
             let the_cert = vcek_path.first().unwrap();
 
             match the_cert.tbs_certificate.verify_raw(
-                data_hash_value.as_slice(),
-                pkcs8::AlgorithmIdentifier {
-                    oid: ECDSA_SHA384,
-                    parameters: None,
-                },
-                &der,
-            ) {
-                Ok(_) => {
-                    assert!(true, "Message passed");
-                }
-                Err(e) => {
-                    assert!(false, "Message invalid {}", e);
-                }
-            }
-        }
-
-        #[repr(C)]
-        #[derive(Debug)]
-        struct SnpReportData {
-            pub version: u32,
-            pub guest_svn: u32,
-            pub policy: u64,
-            pub family_id: [u8; 16],
-            pub image_id: [u8; 16],
-            pub vmpl: u32,
-            pub sig_algo: u32,
-            pub plat_version: u64,
-            pub plat_info: u64,
-            pub author_key_en: u32,
-            rsvd1: u32,
-            pub report_data: [u8; 64],
-            pub measurement: [u8; 48],
-            pub host_data: [u8; 32],
-            pub id_key_digest: [u8; 48],
-            pub author_key_digest: [u8; 48],
-            pub report_id: [u8; 32],
-            pub report_id_ma: [u8; 32],
-            pub reported_tcb: u64,
-            rsvd2: [u8; 24],
-            pub chip_id: [u8; 64],
-            rsvd3: [u8; 192],
-            pub signature: [u8; 512],
-        }
-
-        unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
-            ::std::slice::from_raw_parts((p as *const T) as *const u8, ::std::mem::size_of::<T>())
-        }
-
-        #[test]
-        fn test_milan_validation_from_struct() {
-            let report = SnpReportData {
-                version: 2,
-                guest_svn: 0,
-                policy: 720896,
-                family_id: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                image_id: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                vmpl: 0,
-                sig_algo: 1,
-                plat_version: 4828703225471303682,
-                plat_info: 1,
-                author_key_en: 0,
-                rsvd1: 0,
-                report_data: [
-                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
-                    22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
-                    42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61,
-                    62, 63,
-                ],
-                measurement: [
-                    126, 222, 97, 236, 74, 54, 95, 237, 207, 80, 62, 141, 224, 125, 38, 213, 200,
-                    62, 180, 63, 78, 196, 186, 140, 190, 137, 51, 158, 158, 185, 146, 153, 147, 65,
-                    210, 26, 102, 181, 134, 210, 150, 8, 239, 113, 17, 199, 86, 158,
-                ],
-                host_data: [
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0,
-                ],
-                id_key_digest: [
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                ],
-                author_key_digest: [
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                ],
-                report_id: [
-                    37, 231, 167, 178, 243, 181, 192, 242, 224, 124, 91, 79, 44, 116, 130, 2, 148,
-                    181, 105, 101, 216, 161, 66, 103, 38, 220, 151, 238, 172, 89, 189, 10,
-                ],
-                report_id_ma: [
-                    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-                    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-                ],
-                reported_tcb: 4828703225471303682,
-                rsvd2: [
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                ],
-                chip_id: [
-                    41, 113, 216, 50, 137, 33, 105, 133, 59, 193, 107, 172, 170, 110, 141, 208,
-                    121, 134, 243, 142, 232, 214, 81, 101, 228, 68, 245, 145, 210, 202, 111, 124,
-                    97, 142, 226, 56, 109, 209, 75, 218, 7, 222, 153, 229, 6, 34, 102, 251, 20,
-                    130, 203, 95, 248, 97, 224, 140, 175, 87, 147, 29, 152, 241, 188, 205,
-                ],
-                rsvd3: [
-                    2, 0, 0, 0, 0, 0, 3, 67, 42, 42, 1, 0, 42, 42, 1, 0, 2, 0, 0, 0, 0, 0, 3, 67,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                ],
-                signature: [
-                    160, 111, 118, 79, 134, 89, 60, 82, 50, 213, 224, 161, 248, 127, 207, 22, 211,
-                    214, 208, 17, 19, 51, 190, 29, 138, 122, 242, 94, 191, 11, 191, 121, 0, 87,
-                    105, 73, 232, 81, 244, 59, 47, 16, 8, 8, 86, 135, 228, 207, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 109, 249, 167, 100, 48,
-                    186, 142, 160, 54, 95, 171, 25, 218, 199, 152, 169, 74, 171, 27, 7, 186, 57,
-                    163, 138, 31, 14, 246, 160, 15, 120, 222, 164, 180, 83, 18, 170, 161, 5, 227,
-                    239, 253, 113, 23, 3, 254, 205, 3, 160, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                ],
-            };
-
-            #[derive(Clone, Debug, Sequence)]
-            struct EcdsaSig<'a> {
-                r: UIntBytes<'a>,
-                s: UIntBytes<'a>,
-            }
-
-            use crate::crypto;
-            use der::Document;
-            use sha2::{Digest, Sha384};
-            let test_file = unsafe { any_as_u8_slice(&report) };
-            assert_eq!(test_file.len(), 0x4A0, "attestation blob size");
-
-            let test_message = test_file[..0x2A0].to_vec();
-            println!("Message to hash: {:02?}", test_message);
-
-            let test_signature = &test_file[0x2A0..];
-            assert_eq!(test_signature.len(), 0x0200, "attestation signature size");
-
-            let mut r = report.signature[..0x48].to_vec();
-            r.reverse();
-
-            let mut s = report.signature[0x48..0x90].to_vec();
-            s.reverse();
-
-            assert_eq!(r.len(), s.len(), "R & S bytes are equal");
-            assert_eq!(r.len(), 0x48, "R & S are 0x48 bytes");
-
-            let ecdsa = EcdsaSig {
-                r: UIntBytes::new(&r).unwrap(),
-                s: UIntBytes::new(&s).unwrap(),
-            };
-
-            let der = ecdsa.to_vec().unwrap();
-            println!("Der bytes: {:?}", der);
-
-            println!("R={:?}", r);
-            println!("S={:?}", s);
-            //panic!("");
-
-            let data_hash_value = Sha384::digest(&test_file[..0x2A0]);
-            println!("Message hash: {:02X?}", data_hash_value);
-            assert_eq!(data_hash_value.len(), 48, "sha-384 is 48 bytes long");
-
-            const MILAN_VCEK: &str = include_str!("../certs/amd/milan_vcek2.pem");
-            let veck = PkiPath::parse_pem(MILAN_VCEK).unwrap();
-            let vcek_path = PkiPath::from_ders(&veck).unwrap();
-            assert_eq!(vcek_path.len(), 1, "The SNP cert is just one cert");
-            let the_cert = vcek_path.first().unwrap();
-
-            match the_cert.tbs_certificate.verify_raw(
-                data_hash_value.as_slice(),
+                data_hash_value_long.as_slice(),
                 pkcs8::AlgorithmIdentifier {
                     oid: ECDSA_SHA384,
                     parameters: None,

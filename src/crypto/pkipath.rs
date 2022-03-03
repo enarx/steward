@@ -144,20 +144,6 @@ mod verify {
             path.extend(vcek_path.drain(..));
             path.verify(&path[0].tbs_certificate).unwrap();
         }
-
-        #[test]
-        fn milan_vcek_two() {
-            const MILAN: &str = include_str!("../../certs/amd/milan.pem");
-            const MILAN_VCEK: &str = include_str!("../../certs/amd/milan_vcek2.pem");
-            let all = PkiPath::parse_pem(MILAN).unwrap();
-            let veck = PkiPath::parse_pem(MILAN_VCEK).unwrap();
-
-            let mut path = PkiPath::from_ders(&all).unwrap();
-            let mut vcek_path = PkiPath::from_ders(&veck).unwrap();
-
-            path.extend(vcek_path.drain(..));
-            path.verify(&path[0].tbs_certificate).unwrap();
-        }
     }
 
     mod intel {
