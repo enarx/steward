@@ -13,7 +13,7 @@ use axum::body::Bytes;
 use axum::extract::{Extension, TypedHeader};
 use axum::headers::ContentType;
 use axum::routing::post;
-use axum::{AddExtensionLayer, Router};
+use axum::Router;
 use der::asn1::UIntBytes;
 use hyper::StatusCode;
 use mime::Mime;
@@ -70,7 +70,7 @@ async fn main() {
 fn app(state: State) -> Router {
     Router::new()
         .route("/attest", post(attest))
-        .layer(AddExtensionLayer::new(Arc::new(state)))
+        .layer(Extension(Arc::new(state)))
 }
 
 async fn attest(
