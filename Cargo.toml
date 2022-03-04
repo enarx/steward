@@ -29,3 +29,5 @@ mime = "^0.3.16"
 [dev-dependencies]
 tower = { version = "^0.4.11", features = ["util"] }
 http = "^0.2.6"
+sha2 = { version = "^0.10.1" }
+hex-literal = { version = "0.2.2" }

@@ -1,4 +1,5 @@
 mod crypto;
+mod amd;
 
 use crypto::*;
 use x509::request::CertReq;
