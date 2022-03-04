@@ -58,6 +58,10 @@ struct State {
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    for (k, v) in std::env::vars() {
+        eprintln!("{}={}", k, v);
+    }
+
     let state = Args::parse().load().unwrap();
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     tracing::debug!("listening on {}", addr);
