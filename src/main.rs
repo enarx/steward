@@ -1,3 +1,5 @@
+extern crate core;
+
 mod crypto;
 
 use crypto::*;
@@ -15,6 +17,7 @@ use axum::headers::ContentType;
 use axum::routing::post;
 use axum::{AddExtensionLayer, Router};
 use der::asn1::UIntBytes;
+use der::{Encodable, Sequence};
 use hyper::StatusCode;
 use mime::Mime;
 
@@ -52,6 +55,71 @@ struct State {
     key: Zeroizing<Vec<u8>>,
     crt: Vec<u8>,
     ord: AtomicUsize,
+}
+
+// ECDSA-Sig-Value ::= SEQUENCE {
+//    r INTEGER,
+//    s INTEGER
+// }
+#[derive(Clone, Debug, Sequence)]
+struct EcdsaSig<'a> {
+    r: UIntBytes<'a>,
+    s: UIntBytes<'a>,
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Copy, Clone)]
+struct SnpReportData {
+    pub version: u32,
+    pub guest_svn: u32,
+    pub policy: u64,
+    pub family_id: [u8; 16],
+    pub image_id: [u8; 16],
+    pub vmpl: u32,
+    pub sig_algo: u32,
+    pub plat_version: u64,
+    pub plat_info: u64,
+    pub author_key_en: u32,
+    rsvd1: u32,
+    pub report_data: [u8; 64],
+    pub measurement: [u8; 48],
+    pub host_data: [u8; 32],
+    pub id_key_digest: [u8; 48],
+    pub author_key_digest: [u8; 48],
+    pub report_id: [u8; 32],
+    pub report_id_ma: [u8; 32],
+    pub reported_tcb: u64,
+    rsvd2: [u8; 24],
+    pub chip_id: [u8; 64],
+    rsvd3: [u8; 192],
+    pub signature: [u8; 512],
+}
+
+const SNP_SIGNATURE_OFFSET:usize = 0x2A0;
+const SNP_BIGNUM_SIZE:usize = 0x48;
+
+impl SnpReportData {
+    fn get_message(&self) -> Vec<u8> {
+        //let bytes = unsafe { any_as_u8_slice(&self) };
+        let bytes = unsafe { std::mem::transmute::<&SnpReportData, &[u8;0x4A0]>(self) };
+        println!("SnpReportSize: {}", bytes.len());
+        bytes[..SNP_SIGNATURE_OFFSET].to_vec()
+    }
+
+    fn get_signature(&self) -> Vec<u8> {
+        let bytes = unsafe { std::mem::transmute::<&SnpReportData, &[u8;0x4A0]>(self) };
+        let mut r = bytes[SNP_SIGNATURE_OFFSET..SNP_SIGNATURE_OFFSET+SNP_BIGNUM_SIZE].to_vec();
+        let mut s = bytes[SNP_SIGNATURE_OFFSET+SNP_BIGNUM_SIZE..SNP_SIGNATURE_OFFSET+2*SNP_BIGNUM_SIZE].to_vec();
+        r.reverse();
+        s.reverse();
+
+        let ecdsa = EcdsaSig {
+            r: UIntBytes::new(&r).unwrap(),
+            s: UIntBytes::new(&s).unwrap(),
+        };
+
+        ecdsa.to_vec().unwrap()
+    }
 }
 
 #[tokio::main]
@@ -136,7 +204,7 @@ mod tests {
         use crate::*;
 
         use der::asn1::{SetOfVec, Utf8String};
-        use der::{Any, Encodable, Sequence};
+        use der::{Encodable, asn1::UIntBytes};
 
         use x509::attr::AttributeTypeAndValue;
         use x509::name::RelativeDistinguishedName;
@@ -144,8 +212,6 @@ mod tests {
 
         use http::{header::CONTENT_TYPE, Request};
         use hyper::Body;
-        use ring::signature::Signature;
-        use spki::PublicKeyDocument;
         use tower::ServiceExt; // for `app.oneshot()`
 
         const CRT: &[u8] = include_bytes!("../certs/test/crt.der");
@@ -186,19 +252,6 @@ mod tests {
 
         #[test]
         fn test_milan_validation() {
-            // ECDSA-Sig-Value ::= SEQUENCE {
-            //    r INTEGER,
-            //    s INTEGER
-            //}
-            #[derive(Clone, Debug, Sequence)]
-            struct EcdsaSig<'a> {
-                r: UIntBytes<'a>,
-                s: UIntBytes<'a>,
-            }
-
-            use crate::crypto;
-            use der::Document;
-            use sha2::{Digest, Sha384};
             use std::fs;
             let mut test_file = fs::read("tests/test1_le.bin").unwrap();
             assert_eq!(test_file.len(), 0x4A0, "attestation blob size");
@@ -226,22 +279,6 @@ mod tests {
             assert_eq!(r.len(), s.len(), "R & S bytes are equal");
             assert_eq!(r.len(), 0x48, "R & S are 0x48 bytes");
 
-            let data_hash_value = Sha384::digest(&test_file[..0x2A0]);
-            println!("Message hash: {:02X?}", data_hash_value);
-            assert_eq!(data_hash_value.len(), 48, "sha-384 is 48 bytes long");
-
-            let data_hash_value_long = {
-                let mut temp = vec![0u8; 64];
-                let mut i: usize = 0;
-                for val in data_hash_value {
-                    temp[i] = val;
-                    i += 1;
-                }
-                temp
-            };
-
-            println!("Message hash long: {:02X?}", data_hash_value_long);
-
             const MILAN_VCEK: &str = include_str!("../certs/amd/milan_vcek.pem");
             let veck = PkiPath::parse_pem(MILAN_VCEK).unwrap();
             let vcek_path = PkiPath::from_ders(&veck).unwrap();
@@ -249,12 +286,53 @@ mod tests {
             let the_cert = vcek_path.first().unwrap();
 
             match the_cert.tbs_certificate.verify_raw(
-                &test_file[..0x2A0],
+                test_message,
                 pkcs8::AlgorithmIdentifier {
                     oid: ECDSA_SHA384,
                     parameters: None,
                 },
                 &der,
+            ) {
+                Ok(_) => {
+                    assert!(true, "Message passed");
+                }
+                Err(e) => {
+                    assert!(false, "Message invalid {}", e);
+                }
+            }
+        }
+
+        #[test]
+        fn test_milan_validation_struct() {
+            use std::fs;
+            let test_file = fs::read("tests/test1_le.bin").unwrap();
+            assert_eq!(test_file.len(), 0x4A0, "attestation blob size");
+            let mut test_file_bytes = [0u8; 0x4A0];
+            for (i, v) in test_file.iter().enumerate() { test_file_bytes[i] = *v; }
+
+            assert_eq!(test_file.len(), core::mem::size_of::<SnpReportData>());
+            //let report_data = test_file.as_ptr() as *const SnpReportData;
+            //let the_report = unsafe { report_data.read_unaligned() };
+
+            let the_report:SnpReportData = unsafe { std::mem::transmute::<[u8;0x4A0],SnpReportData>(test_file_bytes) };
+            //let (head, body, _tail) = unsafe { test_file.align_to::<SnpReportData>() };
+            //assert!(head.is_empty(), "Data was not aligned");
+            //let the_report = body[0];
+
+            println!("{:?}", the_report);
+            const MILAN_VCEK: &str = include_str!("../certs/amd/milan_vcek.pem");
+            let veck = PkiPath::parse_pem(MILAN_VCEK).unwrap();
+            let vcek_path = PkiPath::from_ders(&veck).unwrap();
+            assert_eq!(vcek_path.len(), 1, "The SNP cert is just one cert");
+            let the_cert = vcek_path.first().unwrap();
+
+            match the_cert.tbs_certificate.verify_raw(
+                the_report.get_message().as_slice(),
+                pkcs8::AlgorithmIdentifier {
+                    oid: ECDSA_SHA384,
+                    parameters: None,
+                },
+                the_report.get_signature().as_slice(),
             ) {
                 Ok(_) => {
                     assert!(true, "Message passed");
