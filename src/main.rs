@@ -200,19 +200,16 @@ mod tests {
             use der::Document;
             use sha2::{Digest, Sha384};
             use std::fs;
-            let test_file = fs::read("tests/guest_report.bin").unwrap();
+            let mut test_file = fs::read("tests/test1_le.bin").unwrap();
             assert_eq!(test_file.len(), 0x4A0, "attestation blob size");
 
-            let test_message = test_file[..0x2A0].to_vec();
+            let (test_message, test_signature) = test_file.split_at_mut(0x2A0);
             println!("Message to hash: {:02?}", test_message);
-
-            let test_signature = &test_file[0x2A0..];
             assert_eq!(test_signature.len(), 0x0200, "attestation signature size");
 
-            let mut r = test_signature[..0x48].to_vec();
+            let (r, rest) = test_signature.split_at_mut(0x48);
+            let (s, _) = rest.split_at_mut(0x48);
             r.reverse();
-
-            let mut s = test_signature[0x48..0x90].to_vec();
             s.reverse();
 
             let ecdsa = EcdsaSig {
@@ -225,7 +222,6 @@ mod tests {
 
             println!("R={:?}", r);
             println!("S={:?}", s);
-            //panic!("");
 
             assert_eq!(r.len(), s.len(), "R & S bytes are equal");
             assert_eq!(r.len(), 0x48, "R & S are 0x48 bytes");
