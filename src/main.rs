@@ -17,11 +17,10 @@ use axum::headers::ContentType;
 use axum::routing::post;
 use axum::{AddExtensionLayer, Router};
 use der::asn1::UIntBytes;
-use der::{Encodable, Sequence};
+use der::{Decodable, Encodable, Sequence};
 use hyper::StatusCode;
 use mime::Mime;
 
-use der::Decodable;
 use pkcs8::PrivateKeyInfo;
 use x509::time::{Time, Validity};
 use x509::{Certificate, TbsCertificate};
@@ -67,6 +66,7 @@ struct EcdsaSig<'a> {
     s: UIntBytes<'a>,
 }
 
+/// The attestation report from the trusted environment on an AMD system
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 struct SnpReportData {
@@ -88,6 +88,7 @@ struct SnpReportData {
     pub author_key_digest: [u8; 48],
     pub report_id: [u8; 32],
     pub report_id_ma: [u8; 32],
+    /// Represents the bootloader, SNP firmware, and patch level of the CPU
     pub reported_tcb: u64,
     rsvd2: [u8; 24],
     pub chip_id: [u8; 64],
@@ -100,7 +101,6 @@ const SNP_BIGNUM_SIZE:usize = 0x48;
 
 impl SnpReportData {
     fn get_message(&self) -> Vec<u8> {
-        //let bytes = unsafe { any_as_u8_slice(&self) };
         let bytes = unsafe { std::mem::transmute::<&SnpReportData, &[u8;0x4A0]>(self) };
         println!("SnpReportSize: {}", bytes.len());
         bytes[..SNP_SIGNATURE_OFFSET].to_vec()
@@ -120,6 +120,17 @@ impl SnpReportData {
 
         ecdsa.to_vec().unwrap()
     }
+}
+
+fn validate_snp_report(the_report: &SnpReportData, the_certificate: &Certificate) -> anyhow::Result<()> {
+    the_certificate.tbs_certificate.verify_raw(
+        the_report.get_message().as_slice(),
+        pkcs8::AlgorithmIdentifier {
+            oid: crypto::oids::ECDSA_SHA384,
+            parameters: None,
+        },
+        the_report.get_signature().as_slice(),
+    )
 }
 
 #[tokio::main]
@@ -306,39 +317,22 @@ mod tests {
         fn test_milan_validation_struct() {
             use std::fs;
             let test_file = fs::read("tests/test1_le.bin").unwrap();
+            let mut fixed_sized_bytes = [0u8; 0x4A0];
+            for (i, v) in test_file.iter().enumerate() { fixed_sized_bytes[i] = *v; }
+            let the_report:SnpReportData = unsafe { std::mem::transmute::<[u8;0x4A0],SnpReportData>(fixed_sized_bytes) };
             assert_eq!(test_file.len(), 0x4A0, "attestation blob size");
-            let mut test_file_bytes = [0u8; 0x4A0];
-            for (i, v) in test_file.iter().enumerate() { test_file_bytes[i] = *v; }
 
-            assert_eq!(test_file.len(), core::mem::size_of::<SnpReportData>());
-            //let report_data = test_file.as_ptr() as *const SnpReportData;
-            //let the_report = unsafe { report_data.read_unaligned() };
-
-            let the_report:SnpReportData = unsafe { std::mem::transmute::<[u8;0x4A0],SnpReportData>(test_file_bytes) };
-            //let (head, body, _tail) = unsafe { test_file.align_to::<SnpReportData>() };
-            //assert!(head.is_empty(), "Data was not aligned");
-            //let the_report = body[0];
-
-            println!("{:?}", the_report);
             const MILAN_VCEK: &str = include_str!("../certs/amd/milan_vcek.pem");
-            let veck = PkiPath::parse_pem(MILAN_VCEK).unwrap();
-            let vcek_path = PkiPath::from_ders(&veck).unwrap();
-            assert_eq!(vcek_path.len(), 1, "The SNP cert is just one cert");
-            let the_cert = vcek_path.first().unwrap();
+            let vcek = PkiPath::parse_pem(MILAN_VCEK).unwrap();
+            let the_cert = PkiPath::from_ders(&vcek).unwrap();
+            let the_cert = the_cert.first().unwrap();
 
-            match the_cert.tbs_certificate.verify_raw(
-                the_report.get_message().as_slice(),
-                pkcs8::AlgorithmIdentifier {
-                    oid: ECDSA_SHA384,
-                    parameters: None,
-                },
-                the_report.get_signature().as_slice(),
-            ) {
+            match validate_snp_report(&the_report, the_cert) {
                 Ok(_) => {
-                    assert!(true, "Message passed");
+                    println!("Success!")
                 }
                 Err(e) => {
-                    assert!(false, "Message invalid {}", e);
+                    eprintln!("Validation failed: {}", e)
                 }
             }
         }
