@@ -1,10 +1,9 @@
 mod crypto;
 
-use crypto::*;
-use x509::request::CertReq;
-
-use std::net::SocketAddr;
+use std::env::var;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -14,12 +13,17 @@ use axum::extract::{Extension, TypedHeader};
 use axum::headers::ContentType;
 use axum::routing::post;
 use axum::Router;
-use der::asn1::UIntBytes;
 use hyper::StatusCode;
 use mime::Mime;
 
-use der::Decodable;
+use const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE};
+use crypto::*;
+use der::asn1::{GeneralizedTime, UIntBytes};
+use der::{Decodable, Encodable};
 use pkcs8::PrivateKeyInfo;
+use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
+use x509::name::RdnSequence;
+use x509::request::CertReq;
 use x509::time::{Time, Validity};
 use x509::{Certificate, TbsCertificate};
 
@@ -54,21 +58,85 @@ struct State {
     ord: AtomicUsize,
 }
 
+impl State {
+    pub fn generate(hostname: &str) -> anyhow::Result<Self> {
+        use const_oid::db::rfc5912::SECP_256_R_1 as P256;
+
+        // Generate the private key.
+        let key = PrivateKeyInfo::generate(P256)?;
+        let pki = PrivateKeyInfo::from_der(key.as_ref())?;
+
+        // Create a relative distinguished name.
+        let rdns = RdnSequence::parse(&format!("CN={}", hostname))?;
+        let rdns = RdnSequence::from_der(&rdns)?;
+
+        // Create the extensions.
+        let ku = KeyUsage::from(KeyUsages::KeyCertSign).to_vec()?;
+        let bc = BasicConstraints {
+            ca: true,
+            path_len_constraint: Some(0),
+        }
+        .to_vec()?;
+
+        // Create the certificate duration.
+        let now = SystemTime::now();
+        let dur = Duration::from_secs(60 * 60 * 24 * 365);
+        let validity = Validity {
+            not_before: Time::GeneralTime(GeneralizedTime::from_system_time(now)?),
+            not_after: Time::GeneralTime(GeneralizedTime::from_system_time(now + dur)?),
+        };
+
+        // Create the certificate body.
+        let tbs = TbsCertificate {
+            version: x509::Version::V3,
+            serial_number: UIntBytes::new(&[0u8])?,
+            signature: pki.signs_with()?,
+            issuer: rdns.clone(),
+            validity,
+            subject: rdns,
+            subject_public_key_info: pki.public_key()?,
+            issuer_unique_id: None,
+            subject_unique_id: None,
+            extensions: Some(vec![
+                x509::ext::Extension {
+                    extn_id: ID_CE_KEY_USAGE,
+                    critical: true,
+                    extn_value: &ku,
+                },
+                x509::ext::Extension {
+                    extn_id: ID_CE_BASIC_CONSTRAINTS,
+                    critical: true,
+                    extn_value: &bc,
+                },
+            ]),
+        };
+
+        // Self-sign the certificate.
+        let crt = tbs.sign(&pki)?;
+        Ok(Self {
+            key,
+            crt,
+            ord: AtomicUsize::default(),
+        })
+    }
+}
+
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    for (k, v) in std::env::vars() {
-        eprintln!("{}={}", k, v);
-    }
+    let (state, host, port) = match (var("RENDER_EXTERNAL_HOSTNAME"), var("ROCKET_PORT")) {
+        (Ok(host), Ok(port)) => (State::generate(&host)?, "::".parse()?, port.parse()?),
+        _ => (Args::parse().load()?, IpAddr::from_str("127.0.0.1")?, 3000),
+    };
 
-    let state = Args::parse().load().unwrap();
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from((host, port));
     tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app(state).into_make_service())
-        .await
-        .unwrap();
+        .await?;
+
+    Ok(())
 }
 
 fn app(state: State) -> Router {
@@ -138,11 +206,10 @@ mod tests {
     mod attest {
         use crate::*;
 
-        use der::asn1::{SetOfVec, Utf8String};
+        use der::asn1::SetOfVec;
         use der::Encodable;
 
-        use x509::attr::AttributeTypeAndValue;
-        use x509::name::RelativeDistinguishedName;
+        use x509::name::RdnSequence;
         use x509::request::CertReqInfo;
 
         use http::{header::CONTENT_TYPE, Request};
@@ -168,18 +235,14 @@ mod tests {
             let spki = pki.public_key().unwrap();
 
             // Create a relative distinguished name.
-            let mut rdn = RelativeDistinguishedName::new();
-            rdn.add(AttributeTypeAndValue {
-                oid: x509::ext::pkix::oids::AT_COMMON_NAME,
-                value: Utf8String::new("foo").unwrap().into(),
-            })
-            .unwrap();
+            let rdns = RdnSequence::parse("CN=foo").unwrap();
+            let rdns = RdnSequence::from_der(&rdns).unwrap();
 
             // Create a certification request information structure.
             let cri = CertReqInfo {
                 version: x509::request::Version::V1,
                 attributes: SetOfVec::new(), // Extension requests go here.
-                subject: [rdn].into(),
+                subject: rdns,
                 public_key: spki,
             };
 
