@@ -145,7 +145,7 @@ async fn main() -> anyhow::Result<()> {
 
 fn app(state: State) -> Router {
     Router::new()
-        .route("/attest", post(attest))
+        .route("/", post(attest))
         .layer(Extension(Arc::new(state)))
 }
 
@@ -313,7 +313,7 @@ mod tests {
 
             let request = Request::builder()
                 .method("POST")
-                .uri("/attest")
+                .uri("/")
                 .header(CONTENT_TYPE, PKCS10)
                 .body(Body::from(cr(SECP_256_R_1, vec![ext])))
                 .unwrap();
@@ -344,7 +344,7 @@ mod tests {
 
             let request = Request::builder()
                 .method("POST")
-                .uri("/attest")
+                .uri("/")
                 .header(CONTENT_TYPE, PKCS10)
                 .body(Body::from(cr(SECP_256_R_1, vec![ext])))
                 .unwrap();
@@ -375,7 +375,7 @@ mod tests {
 
             let request = Request::builder()
                 .method("POST")
-                .uri("/attest")
+                .uri("/")
                 .header(CONTENT_TYPE, PKCS10)
                 .body(Body::from(cr(SECP_384_R_1, vec![ext])))
                 .unwrap();
@@ -393,7 +393,7 @@ mod tests {
         async fn err_no_attestation() {
             let request = Request::builder()
                 .method("POST")
-                .uri("/attest")
+                .uri("/")
                 .header(CONTENT_TYPE, PKCS10)
                 .body(Body::from(cr(SECP_256_R_1, vec![])))
                 .unwrap();
@@ -406,7 +406,7 @@ mod tests {
         async fn err_no_content_type() {
             let request = Request::builder()
                 .method("POST")
-                .uri("/attest")
+                .uri("/")
                 .body(Body::from(cr(SECP_256_R_1, vec![])))
                 .unwrap();
 
@@ -419,7 +419,7 @@ mod tests {
             let request = Request::builder()
                 .method("POST")
                 .header(CONTENT_TYPE, "text/plain")
-                .uri("/attest")
+                .uri("/")
                 .body(Body::from(cr(SECP_256_R_1, vec![])))
                 .unwrap();
 
@@ -432,7 +432,7 @@ mod tests {
             let request = Request::builder()
                 .method("POST")
                 .header(CONTENT_TYPE, PKCS10)
-                .uri("/attest")
+                .uri("/")
                 .body(Body::empty())
                 .unwrap();
 
@@ -445,7 +445,7 @@ mod tests {
             let request = Request::builder()
                 .method("POST")
                 .header(CONTENT_TYPE, PKCS10)
-                .uri("/attest")
+                .uri("/")
                 .body(Body::from(vec![0x01, 0x02, 0x03, 0x04]))
                 .unwrap();
 
@@ -461,7 +461,7 @@ mod tests {
             let request = Request::builder()
                 .method("POST")
                 .header(CONTENT_TYPE, PKCS10)
-                .uri("/attest")
+                .uri("/")
                 .body(Body::from(cr))
                 .unwrap();
 
