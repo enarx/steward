@@ -456,7 +456,7 @@ mod tests {
         #[tokio::test]
         async fn err_bad_csr_sig() {
             let mut cr = cr(SECP_256_R_1, vec![]);
-            *cr.last_mut().unwrap() = 0; // Modify the signature...
+            *cr.last_mut().unwrap() += 1; // Modify the signature...
 
             let request = Request::builder()
                 .method("POST")
