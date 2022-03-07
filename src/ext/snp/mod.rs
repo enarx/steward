@@ -8,6 +8,7 @@ use const_oid::db::rfc5912::ECDSA_WITH_SHA_384;
 use const_oid::ObjectIdentifier;
 use der::asn1::UIntBytes;
 use der::{Decodable, Encodable, Sequence};
+use flagset::{flags, FlagSet};
 use pkcs8::AlgorithmIdentifier;
 use sha2::Digest;
 use x509::ext::Extension;
@@ -24,31 +25,82 @@ pub struct Evidence<'a> {
     pub report: &'a [u8],
 }
 
+flags! {
+    pub enum Flags: u8 {
+        /// Indicates if only one socket is permitted
+        SingleSocket = 1 << 4,
+        /// Indicates if debugging is permitted
+        Debug = 1 << 3,
+        /// Indicates is association with migration assistant is permitted
+        MigrateMA = 1 << 2,
+        /// Reserved, must be one
+        Reserved = 1 << 1,
+        /// Indicates if SMT is permitted
+        SMT = 1 << 0,
+    }
+}
+
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug)]
+pub struct Policy {
+    /// Minimum ABI minor version required for the guest to run
+    pub abi_minor: u8,
+    /// Minimum ABI major version required for the guest to run
+    pub abi_major: u8,
+    /// Bit fields indicating enabled features
+    pub flags: FlagSet<Flags>,
+    /// Reserved, must be zero
+    rsvd: [u8; 5],
+}
+
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
 struct Body {
+    /// The version of the attestation report, currently 2
     pub version: u32,
+    /// Guest SVN
     pub guest_svn: u32,
-    pub policy: u64,
+    /// The guest policy
+    /// This indicates the required version of the firmware, and if debugging is enabled.
+    pub policy: Policy,
+    /// The family ID provided at launch
     pub family_id: [u8; 16],
+    /// The image ID provided at launch
     pub image_id: [u8; 16],
+    /// The guest VMPL for the attestation report
     pub vmpl: u32,
+    /// The signature algorithm used to sign this report
     pub sig_algo: u32,
+    /// Current TCB
     pub plat_version: u64,
+    /// Platform information
     pub plat_info: u64,
+    /// Indicates (zero or one) that the digest of the author key is in `author_key_digest`
+    /// The other bits are reserved and must be zero.
     pub author_key_en: u32,
+    /// Reserved, must be zero
     rsvd1: u32,
+    /// Guest-provided data
     pub report_data: [u8; 64],
+    /// The measurement calculated at launch
     pub measurement: [u8; 48],
+    /// Data provided by the hypervisor at launch
     pub host_data: [u8; 32],
+    /// SHA-384 of the public key
     pub id_key_digest: [u8; 48],
+    /// SHA-384 of the author key that certified the ID key, or zeros is `author_key_en` is 1
     pub author_key_digest: [u8; 48],
+    /// The report ID of this guest
     pub report_id: [u8; 32],
+    // The report ID of this guest's migration agent
     pub report_id_ma: [u8; 32],
     /// Represents the bootloader, SNP firmware, and patch level of the CPU
     pub reported_tcb: u64,
+    /// Reserved, must be zero
     rsvd2: [u8; 24],
+    /// The identifier unique to the chip, optionally masked and set to zero
     pub chip_id: [u8; 64],
+    /// Reserved, must be zero
     rsvd3: [u8; 192],
 }
 
@@ -202,11 +254,23 @@ impl ExtVerifier for Snp {
 
         // TODO: additional field validations.
 
+        if report.body.version != 2 {
+            return Err(anyhow!("snp report is an unknown version"));
+        }
+
+        if !report.body.policy.flags.contains(Flags::Reserved) {
+            return Err(anyhow!("snp guest policy mandatory reserved flag not set"));
+        }
+
         if !dbg {
             // Validate that the certification request came from an SNP VM.
             let hash = sha2::Sha384::digest(&cri.public_key.to_vec()?);
             if hash.as_slice() != &report.body.report_data[..hash.as_slice().len()] {
                 return Err(anyhow!("snp report.report_data is invalid"));
+            }
+
+            if report.body.policy.flags.contains(Flags::Debug) {
+                return Err(anyhow!("snp guest policy permits debugging"));
             }
         }
 

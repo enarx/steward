@@ -16,6 +16,7 @@ x509 = { git = "https://github.com/npmccallum/formats", branch = "steward", feat
 sha2 = "^0.10.2"
 ring = { version = "0.16.20", features = ["std"] }
 zeroize = { version = "^1.5.2", features = ["alloc"] }
+flagset = "0.4.3"
 
 tracing-subscriber = { version="^0.3.8", features = ["env-filter"] }
 axum = { version = "^0.4.3", features = ["headers"] }

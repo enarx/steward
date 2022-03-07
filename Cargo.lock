@@ -869,6 +869,7 @@ dependencies = [
  "clap",
  "const-oid",
  "der",
+ "flagset",
  "http",
  "hyper",
  "mime",
