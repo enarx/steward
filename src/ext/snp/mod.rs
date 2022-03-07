@@ -132,8 +132,8 @@ impl Snp {
         for root in Self::ROOTS {
             let path = PkiPath::from_der(root)?;
 
-            let mut signer = Some(&path[0].tbs_certificate);
-            for cert in path.iter().chain([vcek].into_iter()) {
+            let mut signer = Some(&path.0[0].tbs_certificate);
+            for cert in path.0.iter().chain([vcek].into_iter()) {
                 signer = signer.and_then(|s| s.verify_crt(cert).ok());
             }
 

@@ -3,11 +3,10 @@ use super::*;
 use std::time::SystemTime;
 
 use anyhow::{anyhow, Result};
+use const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE};
 use der::{asn1::BitString, Decodable, Encodable};
 use pkcs8::{AlgorithmIdentifier, ObjectIdentifier, PrivateKeyInfo};
-use x509::ext::pkix::oids::CE_BASIC_CONSTRAINTS;
-use x509::ext::pkix::{oids::CE_KEY_USAGE, KeyUsage};
-use x509::ext::pkix::{BasicConstraints, KeyUsages};
+use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
 use x509::ext::Extension;
 use x509::{Certificate, TbsCertificate};
 
@@ -109,10 +108,10 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
         self.verify_ext(body, algo, signature, |ext| {
             Ok(match ext.extn_id {
                 // Since we aren't validating a cert, we only care that this is well-formed.
-                CE_BASIC_CONSTRAINTS => BasicConstraints::from_der(ext.extn_value).is_ok(),
+                ID_CE_BASIC_CONSTRAINTS => BasicConstraints::from_der(ext.extn_value).is_ok(),
 
                 // Ensure we are allowed to sign with this certificate.
-                CE_KEY_USAGE => {
+                ID_CE_KEY_USAGE => {
                     let ku = KeyUsage::from_der(ext.extn_value)?;
                     if !ku.contains(KeyUsages::DigitalSignature) {
                         return Err(anyhow!("not allowed to sign documents"));
@@ -145,7 +144,7 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
         self.verify_ext(&body, cert.signature_algorithm, sign, |ext| {
             Ok(match ext.extn_id {
                 // Validate that the parent is allowed to sign certificates.
-                CE_KEY_USAGE => {
+                ID_CE_KEY_USAGE => {
                     let ku = KeyUsage::from_der(ext.extn_value)?;
                     if !ku.contains(KeyUsages::KeyCertSign) {
                         return Err(anyhow!("not allowed to sign certificates"));
@@ -155,7 +154,7 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
                 }
 
                 // Validate the cert is a CA with a valid maximum depth.
-                CE_BASIC_CONSTRAINTS => {
+                ID_CE_BASIC_CONSTRAINTS => {
                     let pbc = BasicConstraints::from_der(ext.extn_value)?;
                     if !pbc.ca {
                         return Err(anyhow!("not ca enabled"));
@@ -168,7 +167,7 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
                     // If the parent has a depth limit, the child MUST have a shorter depth limit.
                     let child_bcs = cert
                         .tbs_certificate
-                        .extensions::<BasicConstraints>(CE_BASIC_CONSTRAINTS)?
+                        .extensions::<BasicConstraints>(ID_CE_BASIC_CONSTRAINTS)?
                         .into_iter()
                         .filter(|e| !selfsigned && e.0 && e.1.ca)
                         .map(|e| e.1);
