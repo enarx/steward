@@ -22,7 +22,7 @@ impl<'a> CertReqExt<'a> for CertReq<'a> {
         let sign = self
             .signature
             .as_bytes()
-            .ok_or(anyhow!("invalid signature"))?;
+            .ok_or_else(|| anyhow!("invalid signature"))?;
         let body = self.info.to_vec()?;
         self.info.public_key.verify(&body, self.algorithm, sign)?;
 

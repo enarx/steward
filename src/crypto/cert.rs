@@ -139,7 +139,7 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
         let sign = cert
             .signature
             .as_bytes()
-            .ok_or(anyhow!("invalid signature"))?;
+            .ok_or_else(|| anyhow!("invalid signature"))?;
 
         self.verify_ext(&body, cert.signature_algorithm, sign, |ext| {
             Ok(match ext.extn_id {
