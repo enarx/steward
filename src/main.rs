@@ -178,7 +178,7 @@ async fn attest(
 
         for any in attr.values.iter() {
             let ereq: ExtensionReq = any.decode_into().or(Err(StatusCode::BAD_REQUEST))?;
-            for ext in ereq.iter() {
+            for ext in Vec::from(ereq) {
                 // If the issuer is self-signed, we are in debug mode.
                 let iss = &issuer.tbs_certificate;
                 let dbg = iss.issuer_unique_id == iss.subject_unique_id;
@@ -186,16 +186,16 @@ async fn attest(
 
                 // Validate the extension.
                 let (copy, att) = match ext.extn_id {
-                    Kvm::OID => (Kvm::default().verify(&cri, ext, dbg), Kvm::ATT),
-                    Sgx::OID => (Sgx::default().verify(&cri, ext, dbg), Sgx::ATT),
-                    Snp::OID => (Snp::default().verify(&cri, ext, dbg), Snp::ATT),
+                    Kvm::OID => (Kvm::default().verify(&cri, &ext, dbg), Kvm::ATT),
+                    Sgx::OID => (Sgx::default().verify(&cri, &ext, dbg), Sgx::ATT),
+                    Snp::OID => (Snp::default().verify(&cri, &ext, dbg), Snp::ATT),
                     _ => return Err(StatusCode::BAD_REQUEST), // unsupported extension
                 };
 
                 // Save results.
                 attested |= att;
                 if copy.or(Err(StatusCode::BAD_REQUEST))? {
-                    extensions.push(ext.to_vec().or(Err(StatusCode::INTERNAL_SERVER_ERROR))?);
+                    extensions.push(ext);
                 }
             }
         }
@@ -229,7 +229,7 @@ async fn attest(
         subject_public_key_info: cri.public_key,
         issuer_unique_id: issuer.tbs_certificate.subject_unique_id,
         subject_unique_id: None,
-        extensions: None,
+        extensions: Some(extensions),
     };
 
     // Sign the certificate.
