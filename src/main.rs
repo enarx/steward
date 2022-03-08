@@ -75,7 +75,7 @@ impl State {
         let rdns = RdnSequence::from_der(&rdns)?;
 
         // Create the extensions.
-        let ku = KeyUsage::from(KeyUsages::KeyCertSign).to_vec()?;
+        let ku = KeyUsage(KeyUsages::KeyCertSign.into()).to_vec()?;
         let bc = BasicConstraints {
             ca: true,
             path_len_constraint: Some(0),

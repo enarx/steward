@@ -99,7 +99,7 @@ checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 [[package]]
 name = "base64ct"
 version = "1.4.0-pre.0"
-source = "git+https://github.com/npmccallum/formats?branch=steward#8202d98e2423594582a4432806033059e62aa89b"
+source = "git+https://github.com/npmccallum/formats?branch=steward#be7f426e2c5352193ee2f3b32acf52d8b9eeb513"
 
 [[package]]
 name = "bitflags"
@@ -173,7 +173,7 @@ dependencies = [
 [[package]]
 name = "const-oid"
 version = "0.8.0"
-source = "git+https://github.com/npmccallum/formats?branch=steward#8202d98e2423594582a4432806033059e62aa89b"
+source = "git+https://github.com/npmccallum/formats?branch=steward#be7f426e2c5352193ee2f3b32acf52d8b9eeb513"
 
 [[package]]
 name = "cpufeatures"
@@ -197,7 +197,7 @@ dependencies = [
 [[package]]
 name = "der"
 version = "0.6.0-pre.1"
-source = "git+https://github.com/npmccallum/formats?branch=steward#8202d98e2423594582a4432806033059e62aa89b"
+source = "git+https://github.com/npmccallum/formats?branch=steward#be7f426e2c5352193ee2f3b32acf52d8b9eeb513"
 dependencies = [
  "const-oid",
  "der_derive",
@@ -207,7 +207,7 @@ dependencies = [
 [[package]]
 name = "der_derive"
 version = "0.6.0-pre.1"
-source = "git+https://github.com/npmccallum/formats?branch=steward#8202d98e2423594582a4432806033059e62aa89b"
+source = "git+https://github.com/npmccallum/formats?branch=steward#be7f426e2c5352193ee2f3b32acf52d8b9eeb513"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -633,7 +633,7 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 [[package]]
 name = "pkcs8"
 version = "0.9.0-pre"
-source = "git+https://github.com/npmccallum/formats?branch=steward#8202d98e2423594582a4432806033059e62aa89b"
+source = "git+https://github.com/npmccallum/formats?branch=steward#be7f426e2c5352193ee2f3b32acf52d8b9eeb513"
 dependencies = [
  "der",
  "spki",
@@ -693,9 +693,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.5.4"
+version = "1.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d07a8629359eb56f1e2fb1652bb04212c072a87ba68546a04065d525673ac461"
+checksum = "1a11647b6b25ff05a515cb92c365cec08801e83423a235b51e231e1808747286"
 dependencies = [
  "regex-syntax",
 ]
@@ -745,7 +745,7 @@ checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 [[package]]
 name = "sec1"
 version = "0.3.0-pre"
-source = "git+https://github.com/npmccallum/formats?branch=steward#8202d98e2423594582a4432806033059e62aa89b"
+source = "git+https://github.com/npmccallum/formats?branch=steward#be7f426e2c5352193ee2f3b32acf52d8b9eeb513"
 dependencies = [
  "der",
  "generic-array",
@@ -853,7 +853,7 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 [[package]]
 name = "spki"
 version = "0.6.0-pre.0"
-source = "git+https://github.com/npmccallum/formats?branch=steward#8202d98e2423594582a4432806033059e62aa89b"
+source = "git+https://github.com/npmccallum/formats?branch=steward#be7f426e2c5352193ee2f3b32acf52d8b9eeb513"
 dependencies = [
  "base64ct",
  "der",
@@ -1290,7 +1290,7 @@ checksum = "504a2476202769977a040c6364301a3f65d0cc9e3fb08600b2bda150a0488316"
 [[package]]
 name = "x509"
 version = "0.0.1"
-source = "git+https://github.com/npmccallum/formats?branch=steward#8202d98e2423594582a4432806033059e62aa89b"
+source = "git+https://github.com/npmccallum/formats?branch=steward#be7f426e2c5352193ee2f3b32acf52d8b9eeb513"
 dependencies = [
  "const-oid",
  "der",

@@ -113,7 +113,7 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
                 // Ensure we are allowed to sign with this certificate.
                 ID_CE_KEY_USAGE => {
                     let ku = KeyUsage::from_der(ext.extn_value)?;
-                    if !ku.contains(KeyUsages::DigitalSignature) {
+                    if !ku.0.contains(KeyUsages::DigitalSignature) {
                         return Err(anyhow!("not allowed to sign documents"));
                     }
 
@@ -146,7 +146,7 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
                 // Validate that the parent is allowed to sign certificates.
                 ID_CE_KEY_USAGE => {
                     let ku = KeyUsage::from_der(ext.extn_value)?;
-                    if !ku.contains(KeyUsages::KeyCertSign) {
+                    if !ku.0.contains(KeyUsages::KeyCertSign) {
                         return Err(anyhow!("not allowed to sign certificates"));
                     }
 
