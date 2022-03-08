@@ -26,7 +26,7 @@ pub struct Evidence<'a> {
 }
 
 flags! {
-    pub enum Flags: u8 {
+    pub enum PolicyFlags: u8 {
         /// Indicates if only one socket is permitted
         SingleSocket = 1 << 4,
         /// Indicates if debugging is permitted
@@ -36,6 +36,11 @@ flags! {
         /// Reserved, must be one
         Reserved = 1 << 1,
         /// Indicates if SMT is permitted
+        SMT = 1 << 0,
+    }
+
+    pub enum PlatformInfoFlags: u8 {
+        TSME = 1 << 1,
         SMT = 1 << 0,
     }
 }
@@ -48,9 +53,18 @@ pub struct Policy {
     /// Minimum ABI major version required for the guest to run
     pub abi_major: u8,
     /// Bit fields indicating enabled features
-    pub flags: FlagSet<Flags>,
+    pub flags: FlagSet<PolicyFlags>,
     /// Reserved, must be zero
     rsvd: [u8; 5],
+}
+
+#[repr(C, packed)]
+#[derive(Copy, Clone, Debug)]
+pub struct PlatformInfo {
+    /// Bit fields indicating enabled features
+    pub flags: FlagSet<PlatformInfoFlags>,
+    /// Reserved
+    rsvd: [u8; 7],
 }
 
 #[repr(C, packed)]
@@ -58,7 +72,7 @@ pub struct Policy {
 struct Body {
     /// The version of the attestation report, currently 2
     pub version: u32,
-    /// Guest SVN
+    /// Guest Security Version Number (SVN)
     pub guest_svn: u32,
     /// The guest policy
     /// This indicates the required version of the firmware, and if debugging is enabled.
@@ -67,14 +81,14 @@ struct Body {
     pub family_id: [u8; 16],
     /// The image ID provided at launch
     pub image_id: [u8; 16],
-    /// The guest VMPL for the attestation report
+    /// The guest Virtual Machine Privilege Level (VMPL) for the attestation report
     pub vmpl: u32,
     /// The signature algorithm used to sign this report
     pub sig_algo: u32,
     /// Current TCB
     pub plat_version: u64,
     /// Platform information
-    pub plat_info: u64,
+    pub plat_info: PlatformInfo,
     /// Indicates (zero or one) that the digest of the author key is in `author_key_digest`
     /// The other bits are reserved and must be zero.
     pub author_key_en: u32,
@@ -100,8 +114,28 @@ struct Body {
     rsvd2: [u8; 24],
     /// The identifier unique to the chip, optionally masked and set to zero
     pub chip_id: [u8; 64],
+    /// Committed TCB
+    pub committed_tcb: u64,
+    /// The build number of the Current Version
+    pub current_build: u8,
+    /// The minor number of the Current Version
+    pub current_minor: u8,
+    /// The major number of the Current Version
+    pub current_major: u8,
     /// Reserved, must be zero
-    rsvd3: [u8; 192],
+    rsvd3: u8,
+    /// The build number of the Committed Version
+    pub committed_build: u8,
+    /// The minor number of the Committed Version
+    pub committed_minor: u8,
+    /// The major number of the Committed Version
+    pub committed_major: u8,
+    /// Reserved, must be zero
+    rsvd4: u8,
+    /// The Current TCB at the time the guest was launched or imported
+    pub launch_tcb: u64,
+    /// Reserved, must be zero
+    rsvd5: [u8; 168],
 }
 
 impl AsRef<[u8; size_of::<Self>()]> for Body {
@@ -254,12 +288,81 @@ impl ExtVerifier for Snp {
 
         // TODO: additional field validations.
 
+        // Should only be version 2
         if report.body.version != 2 {
             return Err(anyhow!("snp report is an unknown version"));
         }
 
-        if !report.body.policy.flags.contains(Flags::Reserved) {
+        // Check policy
+        if !report.body.policy.flags.contains(PolicyFlags::Reserved) {
             return Err(anyhow!("snp guest policy mandatory reserved flag not set"));
+        }
+
+        if report.body.policy.flags.contains(PolicyFlags::MigrateMA) {
+            return Err(anyhow!("snp guest policy migration flag was set"));
+        }
+
+        // Check reserved fields
+        if report.body.rsvd1 != 0 || report.body.rsvd3 != 0 || report.body.rsvd4 != 0 {
+            return Err(anyhow!("snp report reserved fields were set"));
+        }
+
+        for value in report.body.rsvd2 {
+            if value != 0 {
+                return Err(anyhow!("snp report reserved fields were set"));
+            }
+        }
+
+        for value in report.body.rsvd5 {
+            if value != 0 {
+                return Err(anyhow!("snp report reserved fields were set"));
+            }
+        }
+
+        for value in report.body.policy.rsvd {
+            if value != 0 {
+                return Err(anyhow!("snp report policy reserved fields were set"));
+            }
+        }
+
+        for value in report.body.plat_info.rsvd {
+            if value != 0 {
+                return Err(anyhow!("snp report platform_info reserved fields were set"));
+            }
+        }
+
+        // Check fields not set by Enarx
+        for value in report.body.author_key_digest {
+            if value != 0 {
+                return Err(anyhow!("snp report author_key_digest field not set by Enarx"));
+            }
+        }
+
+        for value in report.body.host_data {
+            if value != 0 {
+                return Err(anyhow!("snp report host_data field not set by Enarx"));
+            }
+        }
+
+        for value in report.body.id_key_digest {
+            if value != 0 {
+                return Err(anyhow!("snp report id_key_digest field not set by Enarx"));
+            }
+        }
+
+        if report.body.vmpl != 0 {
+            return Err(anyhow!("snp report vmpl field not set by Enarx"));
+        }
+
+        if report.body.guest_svn != 0 {
+            return Err(anyhow!("snp report guest_svn field not set by Enarx"));
+        }
+
+        // Check field set by Enarx
+        for value in report.body.report_id_ma {
+            if value != 255 {
+                return Err(anyhow!("snp report report_id_ma field not the value set by Enarx"));
+            }
         }
 
         if !dbg {
@@ -269,7 +372,7 @@ impl ExtVerifier for Snp {
                 return Err(anyhow!("snp report.report_data is invalid"));
             }
 
-            if report.body.policy.flags.contains(Flags::Debug) {
+            if report.body.policy.flags.contains(PolicyFlags::Debug) {
                 return Err(anyhow!("snp guest policy permits debugging"));
             }
         }
