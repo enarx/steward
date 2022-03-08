@@ -334,7 +334,9 @@ impl ExtVerifier for Snp {
         // Check fields not set by Enarx
         for value in report.body.author_key_digest {
             if value != 0 {
-                return Err(anyhow!("snp report author_key_digest field not set by Enarx"));
+                return Err(anyhow!(
+                    "snp report author_key_digest field not set by Enarx"
+                ));
             }
         }
 
@@ -361,7 +363,9 @@ impl ExtVerifier for Snp {
         // Check field set by Enarx
         for value in report.body.report_id_ma {
             if value != 255 {
-                return Err(anyhow!("snp report report_id_ma field not the value set by Enarx"));
+                return Err(anyhow!(
+                    "snp report report_id_ma field not the value set by Enarx"
+                ));
             }
         }
 
