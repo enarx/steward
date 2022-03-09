@@ -29,7 +29,7 @@ use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
 use x509::name::RdnSequence;
 use x509::request::{CertReq, ExtensionReq};
 use x509::time::{Time, Validity};
-use x509::{Certificate, TbsCertificate};
+use x509::{Certificate, PkiPath, TbsCertificate};
 
 use clap::Parser;
 use zeroize::Zeroizing;
@@ -238,8 +238,14 @@ async fn attest(
     };
 
     // Sign the certificate.
-    Ok(tbs
+    let crt = tbs
         .sign(&isskey)
+        .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+    let crt = Certificate::from_der(&crt).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+
+    // Create and return the PkiPath.
+    Ok(PkiPath::from(vec![issuer, crt])
+        .to_vec()
         .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?)
 }
 
@@ -327,9 +333,11 @@ mod tests {
             assert_eq!(response.status(), StatusCode::OK);
 
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            let sub = Certificate::from_der(&body).unwrap();
-            let iss = Certificate::from_der(CRT).unwrap();
-            iss.tbs_certificate.verify_crt(&sub).unwrap();
+            let path = PkiPath::from_der(&body).unwrap();
+            let issr = Certificate::from_der(CRT).unwrap();
+            assert_eq!(2, path.0.len());
+            assert_eq!(issr, path.0[0]);
+            issr.tbs_certificate.verify_crt(&path.0[1]).unwrap();
         }
 
         #[tokio::test]
@@ -358,9 +366,11 @@ mod tests {
             assert_eq!(response.status(), StatusCode::OK);
 
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            let sub = Certificate::from_der(&body).unwrap();
-            let iss = Certificate::from_der(CRT).unwrap();
-            iss.tbs_certificate.verify_crt(&sub).unwrap();
+            let path = PkiPath::from_der(&body).unwrap();
+            let issr = Certificate::from_der(CRT).unwrap();
+            assert_eq!(2, path.0.len());
+            assert_eq!(issr, path.0[0]);
+            issr.tbs_certificate.verify_crt(&path.0[1]).unwrap();
         }
 
         #[tokio::test]
@@ -389,9 +399,11 @@ mod tests {
             assert_eq!(response.status(), StatusCode::OK);
 
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            let sub = Certificate::from_der(&body).unwrap();
-            let iss = Certificate::from_der(CRT).unwrap();
-            iss.tbs_certificate.verify_crt(&sub).unwrap();
+            let path = PkiPath::from_der(&body).unwrap();
+            let issr = Certificate::from_der(CRT).unwrap();
+            assert_eq!(2, path.0.len());
+            assert_eq!(issr, path.0[0]);
+            issr.tbs_certificate.verify_crt(&path.0[1]).unwrap();
         }
 
         #[tokio::test]
