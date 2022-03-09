@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime};
 use axum::body::Bytes;
 use axum::extract::{Extension, TypedHeader};
 use axum::headers::ContentType;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
 use hyper::StatusCode;
 use mime::Mime;
@@ -146,7 +146,12 @@ async fn main() -> anyhow::Result<()> {
 fn app(state: State) -> Router {
     Router::new()
         .route("/", post(attest))
+        .route("/", get(health))
         .layer(Extension(Arc::new(state)))
+}
+
+async fn health() -> StatusCode {
+    StatusCode::OK
 }
 
 async fn attest(
