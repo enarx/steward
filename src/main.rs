@@ -71,7 +71,7 @@ impl State {
         let pki = PrivateKeyInfo::from_der(key.as_ref())?;
 
         // Create a relative distinguished name.
-        let rdns = RdnSequence::parse(&format!("CN={}", hostname))?;
+        let rdns = RdnSequence::encode_from_string(&format!("CN={}", hostname))?;
         let rdns = RdnSequence::from_der(&rdns)?;
 
         // Create the extensions.
@@ -244,9 +244,9 @@ async fn attest(
     let crt = Certificate::from_der(&crt).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
 
     // Create and return the PkiPath.
-    Ok(PkiPath::from(vec![issuer, crt])
+    PkiPath::from(vec![issuer, crt])
         .to_vec()
-        .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?)
+        .or(Err(StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 #[cfg(test)]
