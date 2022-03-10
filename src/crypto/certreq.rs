@@ -30,13 +30,13 @@ impl<'a> CertReqExt<'a> for CertReq<'a> {
     }
 }
 
-pub trait CertReqInfoExt<'a> {
+pub trait CertReqInfoExt {
     /// Signs the `CertReqInfo` with the specified `PrivateKeyInfo`
-    fn sign(self, pki: &PrivateKeyInfo) -> Result<Vec<u8>>;
+    fn sign(self, pki: &PrivateKeyInfo<'_>) -> Result<Vec<u8>>;
 }
 
-impl<'a> CertReqInfoExt<'a> for CertReqInfo<'a> {
-    fn sign(self, pki: &PrivateKeyInfo) -> Result<Vec<u8>> {
+impl<'a> CertReqInfoExt for CertReqInfo<'a> {
+    fn sign(self, pki: &PrivateKeyInfo<'_>) -> Result<Vec<u8>> {
         let algo = pki.signs_with()?;
         let body = self.to_vec()?;
         let sign = pki.sign(&body, algo)?;

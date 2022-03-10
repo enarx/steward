@@ -38,11 +38,11 @@ pub trait SubjectPublicKeyInfoExt {
     /// already encoded form as it would appear in an X.509 certificate
     /// or a PKCS#10 certification request. If you have a signature in
     /// another format, you will have to reformat it to the correct format.
-    fn verify(&self, body: &[u8], algo: AlgorithmIdentifier, signature: &[u8]) -> Result<()>;
+    fn verify(&self, body: &[u8], algo: AlgorithmIdentifier<'_>, signature: &[u8]) -> Result<()>;
 }
 
 impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
-    fn verify(&self, body: &[u8], algo: AlgorithmIdentifier, sign: &[u8]) -> Result<()> {
+    fn verify(&self, body: &[u8], algo: AlgorithmIdentifier<'_>, sign: &[u8]) -> Result<()> {
         let alg: &'static dyn VerAlg = match (self.algorithm.oids()?, (algo.oid, algo.parameters)) {
             ((ECPK, Some(P256)), ES256) => &ECDSA_P256_SHA256_ASN1,
             ((ECPK, Some(P384)), ES384) => &ECDSA_P384_SHA384_ASN1,
@@ -58,7 +58,7 @@ impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
                 // Validate the sanity of the mask algorithm.
                 let algo = match (mask.oid, mask.parameters) {
                     (ID_MGF_1, Some(p)) => {
-                        let p = p.decode_into::<AlgorithmIdentifier>()?;
+                        let p = p.decode_into::<AlgorithmIdentifier<'_>>()?;
                         match (p.oids()?, salt, tfld) {
                             ((SHA256, None), 32, 1) => Ok(SHA256),
                             ((SHA384, None), 48, 1) => Ok(SHA384),

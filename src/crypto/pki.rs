@@ -33,16 +33,16 @@ pub trait PrivateKeyInfoExt {
     /// this private key. Note that this function does not do any cryptographic
     /// calculations. It expects that the `PrivateKeyInfo` already contains the
     /// public key.
-    fn public_key(&self) -> Result<SubjectPublicKeyInfo>;
+    fn public_key(&self) -> Result<SubjectPublicKeyInfo<'_>>;
 
     /// Get the default signing algorithm for this `SubjectPublicKeyInfo`
-    fn signs_with(&self) -> Result<AlgorithmIdentifier>;
+    fn signs_with(&self) -> Result<AlgorithmIdentifier<'_>>;
 
     /// Signs the body with the specified algorithm
     ///
     /// Note that the signature is returned in its encoded form as it will
     /// appear in an X.509 certificate or PKCS#10 certification request.
-    fn sign(&self, body: &[u8], algo: AlgorithmIdentifier) -> Result<Vec<u8>>;
+    fn sign(&self, body: &[u8], algo: AlgorithmIdentifier<'_>) -> Result<Vec<u8>>;
 }
 
 impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
@@ -66,7 +66,7 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
         Ok(doc.as_ref().to_vec().into())
     }
 
-    fn public_key(&self) -> Result<SubjectPublicKeyInfo> {
+    fn public_key(&self) -> Result<SubjectPublicKeyInfo<'_>> {
         match self.algorithm.oids()? {
             (ECPK, ..) => {
                 let ec = EcPrivateKey::from_der(self.private_key)?;
@@ -80,7 +80,7 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
         }
     }
 
-    fn signs_with(&self) -> Result<AlgorithmIdentifier> {
+    fn signs_with(&self) -> Result<AlgorithmIdentifier<'_>> {
         match self.algorithm.oids()? {
             (ECPK, Some(P256)) => Ok(ES256),
             (ECPK, Some(P384)) => Ok(ES384),
@@ -88,7 +88,7 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
         }
     }
 
-    fn sign(&self, body: &[u8], algo: AlgorithmIdentifier) -> Result<Vec<u8>> {
+    fn sign(&self, body: &[u8], algo: AlgorithmIdentifier<'_>) -> Result<Vec<u8>> {
         let rng = ring::rand::SystemRandom::new();
         match (self.algorithm.oids()?, algo) {
             ((ECPK, Some(P256)), ES256) => {

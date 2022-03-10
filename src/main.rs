@@ -1,3 +1,5 @@
+#![warn(rust_2018_idioms, unused_lifetimes, unused_qualifications, clippy::all)]
+
 mod crypto;
 mod ext;
 
@@ -182,7 +184,7 @@ async fn attest(
         }
 
         for any in attr.values.iter() {
-            let ereq: ExtensionReq = any.decode_into().or(Err(StatusCode::BAD_REQUEST))?;
+            let ereq: ExtensionReq<'_> = any.decode_into().or(Err(StatusCode::BAD_REQUEST))?;
             for ext in Vec::from(ereq) {
                 // If the issuer is self-signed, we are in debug mode.
                 let iss = &issuer.tbs_certificate;

@@ -15,7 +15,7 @@ pub trait TbsCertificateExt<'a> {
     fn extensions<T: Decodable<'a>>(&self, oid: ObjectIdentifier) -> Result<Vec<(bool, T)>>;
 
     /// Signs the `TbsCertificate` with the specified `PrivateKeyInfo`
-    fn sign(self, pki: &PrivateKeyInfo) -> Result<Vec<u8>>;
+    fn sign(self, pki: &PrivateKeyInfo<'_>) -> Result<Vec<u8>>;
 
     /// Verifies a raw signature with extension handling.
     ///
@@ -25,9 +25,9 @@ pub trait TbsCertificateExt<'a> {
     fn verify_ext(
         &self,
         body: &[u8],
-        algo: AlgorithmIdentifier,
+        algo: AlgorithmIdentifier<'_>,
         signature: &[u8],
-        ext: impl FnMut(&Extension) -> Result<bool>,
+        ext: impl FnMut(&Extension<'_>) -> Result<bool>,
     ) -> Result<()>;
 
     /// Verifies a raw signature
@@ -39,7 +39,12 @@ pub trait TbsCertificateExt<'a> {
     /// already encoded form as it would appear in an X.509 certificate
     /// or a PKCS#10 certification request. If you have a signature in
     /// another format, you will have to reformat it to the correct format.
-    fn verify_raw(&self, body: &[u8], algo: AlgorithmIdentifier, signature: &[u8]) -> Result<()>;
+    fn verify_raw(
+        &self,
+        body: &[u8],
+        algo: AlgorithmIdentifier<'_>,
+        signature: &[u8],
+    ) -> Result<()>;
 
     /// Verifies a certificate
     ///
@@ -60,7 +65,7 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
             .collect()
     }
 
-    fn sign(self, pki: &PrivateKeyInfo) -> Result<Vec<u8>> {
+    fn sign(self, pki: &PrivateKeyInfo<'_>) -> Result<Vec<u8>> {
         let algo = self.signature;
         let body = self.to_vec()?;
         let sign = pki.sign(&body, algo)?;
@@ -77,9 +82,9 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
     fn verify_ext(
         &self,
         body: &[u8],
-        algo: AlgorithmIdentifier,
+        algo: AlgorithmIdentifier<'_>,
         signature: &[u8],
-        mut ext: impl FnMut(&Extension) -> Result<bool>,
+        mut ext: impl FnMut(&Extension<'_>) -> Result<bool>,
     ) -> Result<()> {
         // Validate the certificate time constraints.
         if self.validity.not_before.to_system_time() > SystemTime::now() {
@@ -104,7 +109,12 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
         self.subject_public_key_info.verify(body, algo, signature)
     }
 
-    fn verify_raw(&self, body: &[u8], algo: AlgorithmIdentifier, signature: &[u8]) -> Result<()> {
+    fn verify_raw(
+        &self,
+        body: &[u8],
+        algo: AlgorithmIdentifier<'_>,
+        signature: &[u8],
+    ) -> Result<()> {
         self.verify_ext(body, algo, signature, |ext| {
             Ok(match ext.extn_id {
                 // Since we aren't validating a cert, we only care that this is well-formed.
