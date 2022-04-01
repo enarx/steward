@@ -13,10 +13,12 @@ pkcs8 = { version = "0.9.0-pre.1" }
 sec1 = { version = "0.3.0-pre.1", features = ["std"] }
 spki = { version = "0.6.0-pre.1" }
 x509 = { version = "0.0.2", features = ["std"], package = "x509-cert" }
+rustls-pemfile = "0.3.0"
 sha2 = "^0.10.2"
 ring = { version = "0.16.20", features = ["std"] }
 zeroize = { version = "^1.5.2", features = ["alloc"] }
 flagset = "0.4.3"
+sgx = { git = "https://github.com/enarx/sgx" }
 
 tracing-subscriber = { version="^0.3.8", features = ["env-filter"] }
 axum = { version = "^0.4.3", features = ["headers"] }
@@ -31,3 +33,5 @@ mime = "^0.3.16"
 [dev-dependencies]
 tower = { version = "^0.4.11", features = ["util"] }
 http = "^0.2.6"
+memoffset = "0.6.4"
+testaso = "0.1"
