@@ -98,8 +98,9 @@ checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
 name = "base64ct"
-version = "1.4.0-pre.0"
-source = "git+https://github.com/npmccallum/formats?branch=steward#a8ab469fcca52faf6b4b81b0a5c98db8b6f42131"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dea908e7347a8c64e378c17e30ef880ad73e3b4498346b055c2c00ea342f3179"
 
 [[package]]
 name = "bitflags"
@@ -172,8 +173,9 @@ dependencies = [
 
 [[package]]
 name = "const-oid"
-version = "0.8.0"
-source = "git+https://github.com/npmccallum/formats?branch=steward#a8ab469fcca52faf6b4b81b0a5c98db8b6f42131"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "722e23542a15cea1f65d4a1419c4cfd7a26706c70871a13a04238ca3f40f1661"
 
 [[package]]
 name = "cpufeatures"
@@ -196,8 +198,9 @@ dependencies = [
 
 [[package]]
 name = "der"
-version = "0.6.0-pre.1"
-source = "git+https://github.com/npmccallum/formats?branch=steward#a8ab469fcca52faf6b4b81b0a5c98db8b6f42131"
+version = "0.6.0-pre.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3ed717eef39a802bcfbfefed277ffe0639c53ad7720753646d21d2bd6074fe1"
 dependencies = [
  "const-oid",
  "der_derive",
@@ -206,8 +209,9 @@ dependencies = [
 
 [[package]]
 name = "der_derive"
-version = "0.6.0-pre.1"
-source = "git+https://github.com/npmccallum/formats?branch=steward#a8ab469fcca52faf6b4b81b0a5c98db8b6f42131"
+version = "0.6.0-pre.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45cd173346b7c0770907daa7d0b0c1f8e5ce67a853d7fa10f5ff77dc73d82b46"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -632,8 +636,9 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pkcs8"
-version = "0.9.0-pre"
-source = "git+https://github.com/npmccallum/formats?branch=steward#a8ab469fcca52faf6b4b81b0a5c98db8b6f42131"
+version = "0.9.0-pre.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f39eca6cd63c3c92cf3d7bec60872b6e7a7542dbd03c9a164559e13e22c2a708"
 dependencies = [
  "der",
  "spki",
@@ -744,8 +749,9 @@ checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
 
 [[package]]
 name = "sec1"
-version = "0.3.0-pre"
-source = "git+https://github.com/npmccallum/formats?branch=steward#a8ab469fcca52faf6b4b81b0a5c98db8b6f42131"
+version = "0.3.0-pre.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be2a39b189e5764ec7067feb68646cced103360538af8a006616e387eb0d6e05"
 dependencies = [
  "der",
  "generic-array",
@@ -852,8 +858,9 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "spki"
-version = "0.6.0-pre.0"
-source = "git+https://github.com/npmccallum/formats?branch=steward#a8ab469fcca52faf6b4b81b0a5c98db8b6f42131"
+version = "0.6.0-pre.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "093b274198792f2e7026c661f658c74fc4ab023212474878dff187eb98736db1"
 dependencies = [
  "base64ct",
  "der",
@@ -882,7 +889,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
- "x509",
+ "x509-cert",
  "zeroize",
 ]
 
@@ -1288,9 +1295,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "504a2476202769977a040c6364301a3f65d0cc9e3fb08600b2bda150a0488316"
 
 [[package]]
-name = "x509"
-version = "0.0.1"
-source = "git+https://github.com/npmccallum/formats?branch=steward#a8ab469fcca52faf6b4b81b0a5c98db8b6f42131"
+name = "x509-cert"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b08fda23a1ea0b7f7d229f49b99b6635f3106b3630b8920e815a0009e6fc384e"
 dependencies = [
  "const-oid",
  "der",
