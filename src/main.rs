@@ -122,7 +122,7 @@ impl State {
         Ok(Self {
             key,
             crt,
-            ord: AtomicUsize::default(),
+            ord: AtomicUsize::new(1),
         })
     }
 }
