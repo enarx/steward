@@ -1,47 +1,38 @@
+mod quote;
+
 use crate::crypto::*;
+use quote::{cast::report_body_as_bytes, Quote, QuoteBody};
 
 use std::fmt::Debug;
 
-use anyhow::{anyhow, Result};
-
+use anyhow::{anyhow, Context, Result};
+use const_oid::db::rfc5912::ECDSA_WITH_SHA_256;
 use const_oid::ObjectIdentifier;
-use der::{Decodable, Sequence};
-use x509::ext::Extension;
-use x509::{request::CertReqInfo, Certificate};
-use x509::{PkiPath, TbsCertificate};
+use der::Decodable;
+use pkcs8::AlgorithmIdentifier;
+use x509::{ext::Extension, request::CertReqInfo, Certificate, TbsCertificate};
 
 use super::ExtVerifier;
 
-#[derive(Clone, Debug, PartialEq, Eq, Sequence)]
-pub struct Evidence<'a> {
-    pub pck: Certificate<'a>,
+#[derive(Clone, Debug)]
+pub struct Sgx([Certificate<'static>; 1]);
 
-    #[asn1(type = "OCTET STRING")]
-    pub quote: &'a [u8],
+impl Default for Sgx {
+    fn default() -> Self {
+        Self([Certificate::from_der(Self::ROOT).unwrap()])
+    }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct Sgx(());
-
 impl Sgx {
-    const ROOT: &'static [u8] = include_bytes!("sgx.pkipath");
+    const ROOT: &'static [u8] = include_bytes!("root.der");
 
-    // This ensures that the supplied pck is rooted in our trusted chain.
-    fn is_trusted<'c>(&self, pck: &'c Certificate<'c>) -> Result<&'c TbsCertificate<'c>> {
-        let path = PkiPath::from_der(Self::ROOT)?;
-
-        let mut signer = Some(&path.0[0].tbs_certificate);
-        for cert in path.0.iter().chain([pck].into_iter()) {
-            signer = signer.and_then(|s| s.verify_crt(cert).ok());
+    fn trusted<'c>(&'c self, chain: &'c [Certificate<'c>]) -> Result<&'c TbsCertificate<'c>> {
+        let mut signer = &self.0[0].tbs_certificate;
+        for cert in self.0.iter().chain(chain.iter()) {
+            signer = signer.verify_crt(cert)?;
         }
 
-        if let Some(signer) = signer {
-            if signer == &pck.tbs_certificate {
-                return Ok(&pck.tbs_certificate);
-            }
-        }
-
-        Err(anyhow!("sgx pck is untrusted"))
+        Ok(signer)
     }
 }
 
@@ -55,10 +46,18 @@ impl ExtVerifier for Sgx {
         }
 
         // Decode the evidence.
-        let evidence = Evidence::from_der(ext.extn_value)?;
+        let quote =
+            Quote::try_from(ext.extn_value).map_err(|e| anyhow!("quote parsing error: {}", e))?;
+        let chain = match &quote.body {
+            QuoteBody::V3(quote) => quote.sig_data().qe_cert_chain().map_err(|e| anyhow!(e))?,
+        };
+        let chain = chain
+            .iter()
+            .map(|der| Certificate::from_der(der))
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Validate the PCK.
-        let pck = self.is_trusted(&evidence.pck)?;
+        let pck = self.trusted(&chain).unwrap();
 
         // Force certs to have the same key type as the PCK.
         //
@@ -70,16 +69,44 @@ impl ExtVerifier for Sgx {
         // security for the whole chain.
         //
         // We solve this by using forcing the certification request to have
-        // the same key type as the VCEK. This means we have no worse security
-        // than whatever AMD chose for the VCEK.
+        // the same key type as the PCK. This means we have no worse security
+        // than whatever Intel chose for the PCK.
         //
         // Additionally, we do this check early to be defensive.
         if cri.public_key.algorithm != pck.subject_public_key_info.algorithm {
-            return Err(anyhow!("snp vcek algorithm mismatch"));
+            return Err(anyhow!("sgx pck algorithm mismatch"));
         }
 
-        // TODO: validate report
-        if !dbg {}
+        // Extract the quote and its signature.
+        let (report, (signature, signature_len)) = match &quote.body {
+            QuoteBody::V3(quote) => {
+                let report = report_body_as_bytes(quote.sig_data().qe_report());
+                let signature = quote
+                    .sig_data()
+                    .qe_report_sig()
+                    .to_der()
+                    .context("sgx quote signature parse error")?;
+
+                (report, signature)
+            }
+        };
+
+        pck.verify_raw(
+            report,
+            AlgorithmIdentifier {
+                oid: ECDSA_WITH_SHA_256,
+                parameters: None,
+            },
+            &signature[..signature_len],
+        )
+        .context("sgx quote contains invalid signature")?;
+
+        // TODO: validate more fields with the verify function
+        quote.verify()?;
+
+        if !dbg {
+            // TODO: Validate that the certification request came from an SGX enclave.
+        }
 
         Ok(true)
     }

@@ -1,5 +1,8 @@
 #![warn(rust_2018_idioms, unused_lifetimes, unused_qualifications, clippy::all)]
 
+#[macro_use]
+extern crate anyhow;
+
 mod crypto;
 mod ext;
 
@@ -344,35 +347,33 @@ mod tests {
 
         #[tokio::test]
         async fn sgx() {
-            let evidence = ext::sgx::Evidence {
-                pck: Certificate::from_der(include_bytes!("ext/sgx/sgx.pck")).unwrap(),
-                quote: &[],
+            for quote in [
+                include_bytes!("ext/sgx/quote.unknown").as_slice(),
+                include_bytes!("ext/sgx/quote.icelake").as_slice(),
+            ] {
+                let ext = Extension {
+                    extn_id: Sgx::OID,
+                    critical: false,
+                    extn_value: quote,
+                };
+
+                let request = Request::builder()
+                    .method("POST")
+                    .uri("/")
+                    .header(CONTENT_TYPE, PKCS10)
+                    .body(Body::from(cr(SECP_256_R_1, vec![ext])))
+                    .unwrap();
+
+                let response = app(state()).oneshot(request).await.unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+
+                let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+                let path = PkiPath::from_der(&body).unwrap();
+                let issr = Certificate::from_der(CRT).unwrap();
+                assert_eq!(2, path.0.len());
+                assert_eq!(issr, path.0[0]);
+                issr.tbs_certificate.verify_crt(&path.0[1]).unwrap();
             }
-            .to_vec()
-            .unwrap();
-
-            let ext = Extension {
-                extn_id: Sgx::OID,
-                critical: false,
-                extn_value: &evidence,
-            };
-
-            let request = Request::builder()
-                .method("POST")
-                .uri("/")
-                .header(CONTENT_TYPE, PKCS10)
-                .body(Body::from(cr(SECP_256_R_1, vec![ext])))
-                .unwrap();
-
-            let response = app(state()).oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-
-            let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            let path = PkiPath::from_der(&body).unwrap();
-            let issr = Certificate::from_der(CRT).unwrap();
-            assert_eq!(2, path.0.len());
-            assert_eq!(issr, path.0[0]);
-            issr.tbs_certificate.verify_crt(&path.0[1]).unwrap();
         }
 
         #[tokio::test]
