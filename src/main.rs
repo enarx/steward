@@ -164,9 +164,11 @@ async fn attest(
     body: Bytes,
     Extension(state): Extension<Arc<State>>,
 ) -> Result<Vec<u8>, StatusCode> {
+    const ISE: StatusCode = StatusCode::INTERNAL_SERVER_ERROR;
+
     // Decode the signing certificate and key.
-    let issuer = Certificate::from_der(&state.crt).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
-    let isskey = PrivateKeyInfo::from_der(&state.key).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+    let issuer = Certificate::from_der(&state.crt).or(Err(ISE))?;
+    let isskey = PrivateKeyInfo::from_der(&state.key).or(Err(ISE))?;
 
     // Ensure the correct mime type.
     let mime: Mime = PKCS10.parse().unwrap();
@@ -218,21 +220,19 @@ async fn attest(
     let now = SystemTime::now();
     let end = now + Duration::from_secs(60 * 60 * 24);
     let validity = Validity {
-        not_before: Time::try_from(now).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?,
-        not_after: Time::try_from(end).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?,
+        not_before: Time::try_from(now).or(Err(ISE))?,
+        not_after: Time::try_from(end).or(Err(ISE))?,
     };
 
     // Get the next serial number.
     let serial = state.ord.fetch_add(1, Ordering::SeqCst).to_be_bytes();
-    let serial = UIntBytes::new(&serial).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+    let serial = UIntBytes::new(&serial).or(Err(ISE))?;
 
     // Create the new certificate.
     let tbs = TbsCertificate {
         version: x509::Version::V3,
         serial_number: serial,
-        signature: isskey
-            .signs_with()
-            .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?,
+        signature: isskey.signs_with().or(Err(ISE))?,
         issuer: issuer.tbs_certificate.subject.clone(),
         validity,
         subject: issuer.tbs_certificate.subject.clone(), // FIXME
@@ -243,15 +243,11 @@ async fn attest(
     };
 
     // Sign the certificate.
-    let crt = tbs
-        .sign(&isskey)
-        .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
-    let crt = Certificate::from_der(&crt).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+    let crt = tbs.sign(&isskey).or(Err(ISE))?;
+    let crt = Certificate::from_der(&crt).or(Err(ISE))?;
 
     // Create and return the PkiPath.
-    PkiPath::from(vec![issuer, crt])
-        .to_vec()
-        .or(Err(StatusCode::INTERNAL_SERVER_ERROR))
+    PkiPath::from(vec![issuer, crt]).to_vec().or(Err(ISE))
 }
 
 #[cfg(test)]
