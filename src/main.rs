@@ -224,6 +224,12 @@ async fn attest(
         not_after: Time::try_from(end).or(Err(ISE))?,
     };
 
+    // Create a relative distinguished name.
+    let uuid = uuid::Uuid::new_v4();
+    let name = format!("CN={}.foo.bar.hub.profian.com", uuid);
+    let subject = RdnSequence::encode_from_string(&name).or(Err(ISE))?;
+    let subject = RdnSequence::from_der(&subject).or(Err(ISE))?;
+
     // Get the next serial number.
     let serial = state.ord.fetch_add(1, Ordering::SeqCst).to_be_bytes();
     let serial = UIntBytes::new(&serial).or(Err(ISE))?;
@@ -235,7 +241,7 @@ async fn attest(
         signature: isskey.signs_with().or(Err(ISE))?,
         issuer: issuer.tbs_certificate.subject.clone(),
         validity,
-        subject: issuer.tbs_certificate.subject.clone(), // FIXME
+        subject,
         subject_public_key_info: cri.public_key,
         issuer_unique_id: issuer.tbs_certificate.subject_unique_id,
         subject_unique_id: None,

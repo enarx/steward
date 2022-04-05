@@ -25,6 +25,7 @@ axum = { version = "^0.5.1", features = ["headers"] }
 clap = { version = "^3.0.14", features = ["derive"] }
 hyper = { version = "^0.14.17", features = ["full"] }
 tokio = { version = "^1.15.0", features = ["full"] }
+uuid = { version = "^0.8.2", features = ["v4"] }
 tracing = "^0.1.29"
 anyhow = "^1.0.55"
 base64 = "^0.13.0"
