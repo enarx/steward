@@ -9,6 +9,7 @@ mod ext;
 use crypto::*;
 use ext::{kvm::Kvm, sgx::Sgx, snp::Snp, ExtVerifier};
 use rustls_pemfile::Item;
+use x509::ext::pkix::name::GeneralName;
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -24,12 +25,12 @@ use axum::Router;
 use hyper::StatusCode;
 use mime::Mime;
 
-use const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE};
+use const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME};
 use const_oid::db::rfc5912::ID_EXTENSION_REQ;
-use der::asn1::{GeneralizedTime, UIntBytes};
+use der::asn1::{GeneralizedTime, Ia5String, UIntBytes};
 use der::{Decodable, Encodable};
 use pkcs8::PrivateKeyInfo;
-use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
+use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages, SubjectAltName};
 use x509::name::RdnSequence;
 use x509::request::{CertReq, ExtensionReq};
 use x509::time::{Time, Validity};
@@ -56,6 +57,9 @@ struct Args {
 
     #[clap(short, long, env = "RENDER_EXTERNAL_HOSTNAME")]
     host: Option<String>,
+
+    #[clap(long, env = "STEWARD_SAN")]
+    san: Option<String>,
 }
 
 #[derive(Debug)]
@@ -63,10 +67,15 @@ struct State {
     key: Zeroizing<Vec<u8>>,
     crt: Vec<u8>,
     ord: AtomicUsize,
+    san: Option<String>,
 }
 
 impl State {
-    pub fn load(key: impl AsRef<Path>, crt: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn load(
+        san: Option<String>,
+        key: impl AsRef<Path>,
+        crt: impl AsRef<Path>,
+    ) -> anyhow::Result<Self> {
         // Load the key file.
         let mut key = std::io::BufReader::new(std::fs::File::open(key)?);
         let key = match rustls_pemfile::read_one(&mut key)? {
@@ -86,10 +95,10 @@ impl State {
         Certificate::from_der(crt.as_ref())?;
 
         let ord = AtomicUsize::new(1);
-        Ok(Self { key, crt, ord })
+        Ok(Self { key, crt, ord, san })
     }
 
-    pub fn generate(hostname: &str) -> anyhow::Result<Self> {
+    pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
         use const_oid::db::rfc5912::SECP_256_R_1 as P256;
 
         // Generate the private key.
@@ -147,6 +156,7 @@ impl State {
             key,
             crt,
             ord: AtomicUsize::new(1),
+            san,
         })
     }
 }
@@ -158,8 +168,8 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let addr = SocketAddr::from((args.addr, args.port));
     let state = match (args.key, args.crt, args.host) {
-        (None, None, Some(host)) => State::generate(&host)?,
-        (Some(key), Some(crt), _) => State::load(key, crt)?,
+        (None, None, Some(host)) => State::generate(args.san, &host)?,
+        (Some(key), Some(crt), _) => State::load(args.san, key, crt)?,
         _ => panic!("invalid configuration"),
     };
 
@@ -257,6 +267,23 @@ async fn attest(
     let serial = state.ord.fetch_add(1, Ordering::SeqCst).to_be_bytes();
     let serial = UIntBytes::new(&serial).or(Err(ISE))?;
 
+    // Add the configured subject alt name.
+    let mut san: Option<Vec<u8>> = None;
+    if let Some(name) = state.san.as_ref() {
+        let name = Ia5String::new(name).or(Err(ISE))?;
+        let name = GeneralName::DnsName(name);
+        let name = SubjectAltName(vec![name]);
+        let name = name.to_vec().or(Err(ISE))?;
+        san = Some(name);
+    }
+    if let Some(san) = san.as_ref() {
+        extensions.push(x509::ext::Extension {
+            extn_id: ID_CE_SUBJECT_ALT_NAME,
+            critical: false,
+            extn_value: san,
+        });
+    }
+
     // Create the new certificate.
     let tbs = TbsCertificate {
         version: x509::Version::V3,
@@ -303,6 +330,7 @@ mod tests {
                 key: KEY.to_owned().into(),
                 crt: CRT.into(),
                 ord: Default::default(),
+                san: None,
             }
         }
 
