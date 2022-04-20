@@ -8,11 +8,10 @@ mod ext;
 
 use crypto::*;
 use ext::{kvm::Kvm, sgx::Sgx, snp::Snp, ExtVerifier};
+use rustls_pemfile::Item;
 
-use std::env::var;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -43,21 +42,20 @@ const PKCS10: &str = "application/pkcs10";
 
 #[derive(Clone, Debug, Parser)]
 struct Args {
-    #[clap(short, long)]
-    key: PathBuf,
+    #[clap(short, long, env = "STEWARD_KEY")]
+    key: Option<PathBuf>,
 
-    #[clap(short, long)]
-    crt: PathBuf,
-}
+    #[clap(short, long, env = "STEWARD_CRT")]
+    crt: Option<PathBuf>,
 
-impl Args {
-    fn load(self) -> std::io::Result<State> {
-        Ok(State {
-            key: std::fs::read(self.key)?.into(),
-            crt: std::fs::read(self.crt)?,
-            ord: AtomicUsize::default(),
-        })
-    }
+    #[clap(short, long, env = "ROCKET_PORT", default_value = "3000")]
+    port: u16,
+
+    #[clap(short, long, env = "ROCKET_ADDRESS", default_value = "::")]
+    addr: IpAddr,
+
+    #[clap(short, long, env = "RENDER_EXTERNAL_HOSTNAME")]
+    host: Option<String>,
 }
 
 #[derive(Debug)]
@@ -68,6 +66,29 @@ struct State {
 }
 
 impl State {
+    pub fn load(key: impl AsRef<Path>, crt: impl AsRef<Path>) -> anyhow::Result<Self> {
+        // Load the key file.
+        let mut key = std::io::BufReader::new(std::fs::File::open(key)?);
+        let key = match rustls_pemfile::read_one(&mut key)? {
+            Some(Item::PKCS8Key(buf)) => Zeroizing::new(buf),
+            _ => return Err(anyhow!("invalid key file")),
+        };
+
+        // Load the crt file.
+        let mut crt = std::io::BufReader::new(std::fs::File::open(crt)?);
+        let crt = match rustls_pemfile::read_one(&mut crt)? {
+            Some(Item::X509Certificate(buf)) => buf,
+            _ => return Err(anyhow!("invalid key file")),
+        };
+
+        // Validate the syntax of the files.
+        PrivateKeyInfo::from_der(key.as_ref())?;
+        Certificate::from_der(crt.as_ref())?;
+
+        let ord = AtomicUsize::new(1);
+        Ok(Self { key, crt, ord })
+    }
+
     pub fn generate(hostname: &str) -> anyhow::Result<Self> {
         use const_oid::db::rfc5912::SECP_256_R_1 as P256;
 
@@ -134,12 +155,14 @@ impl State {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let (state, host, port) = match (var("RENDER_EXTERNAL_HOSTNAME"), var("ROCKET_PORT")) {
-        (Ok(host), Ok(port)) => (State::generate(&host)?, "::".parse()?, port.parse()?),
-        _ => (Args::parse().load()?, IpAddr::from_str("127.0.0.1")?, 3000),
+    let args = Args::parse();
+    let addr = SocketAddr::from((args.addr, args.port));
+    let state = match (args.key, args.crt, args.host) {
+        (None, None, Some(host)) => State::generate(&host)?,
+        (Some(key), Some(crt), _) => State::load(key, crt)?,
+        _ => panic!("invalid configuration"),
     };
 
-    let addr = SocketAddr::from((host, port));
     tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app(state).into_make_service())
