@@ -8,12 +8,12 @@ mod ext;
 
 use crypto::*;
 use ext::{kvm::Kvm, sgx::Sgx, snp::Snp, ExtVerifier};
+use ring::rand::{SecureRandom, SystemRandom};
 use rustls_pemfile::Item;
 use x509::ext::pkix::name::GeneralName;
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -66,7 +66,6 @@ struct Args {
 struct State {
     key: Zeroizing<Vec<u8>>,
     crt: Vec<u8>,
-    ord: AtomicUsize,
     san: Option<String>,
 }
 
@@ -94,8 +93,7 @@ impl State {
         PrivateKeyInfo::from_der(key.as_ref())?;
         Certificate::from_der(crt.as_ref())?;
 
-        let ord = AtomicUsize::new(1);
-        Ok(Self { key, crt, ord, san })
+        Ok(Self { key, crt, san })
     }
 
     pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
@@ -152,12 +150,7 @@ impl State {
 
         // Self-sign the certificate.
         let crt = tbs.sign(&pki)?;
-        Ok(Self {
-            key,
-            crt,
-            ord: AtomicUsize::new(1),
-            san,
-        })
+        Ok(Self { key, crt, san })
     }
 }
 
@@ -264,8 +257,8 @@ async fn attest(
     let subject = RdnSequence::from_der(&subject).or(Err(ISE))?;
 
     // Get the next serial number.
-    let serial = state.ord.fetch_add(1, Ordering::SeqCst).to_be_bytes();
-    let serial = UIntBytes::new(&serial).or(Err(ISE))?;
+    let mut serial = [0u8; 16];
+    SystemRandom::new().fill(&mut serial).or(Err(ISE))?;
 
     // Add the configured subject alt name.
     let mut san: Option<Vec<u8>> = None;
@@ -287,7 +280,7 @@ async fn attest(
     // Create the new certificate.
     let tbs = TbsCertificate {
         version: x509::Version::V3,
-        serial_number: serial,
+        serial_number: UIntBytes::new(&serial).or(Err(ISE))?,
         signature: isskey.signs_with().or(Err(ISE))?,
         issuer: issuer.tbs_certificate.subject.clone(),
         validity,
@@ -329,7 +322,6 @@ mod tests {
             State {
                 key: KEY.to_owned().into(),
                 crt: CRT.into(),
-                ord: Default::default(),
                 san: None,
             }
         }
