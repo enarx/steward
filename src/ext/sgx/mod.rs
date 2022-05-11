@@ -115,6 +115,6 @@ impl ExtVerifier for Sgx {
             }
         }
 
-        Ok(true)
+        Ok(false)
     }
 }

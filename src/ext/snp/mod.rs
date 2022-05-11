@@ -381,6 +381,6 @@ impl ExtVerifier for Snp {
             }
         }
 
-        Ok(true)
+        Ok(false)
     }
 }
