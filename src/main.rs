@@ -8,7 +8,6 @@ mod ext;
 
 use crypto::*;
 use ext::{kvm::Kvm, sgx::Sgx, snp::Snp, ExtVerifier};
-use ring::rand::{SecureRandom, SystemRandom};
 use rustls_pemfile::Item;
 use x509::ext::pkix::name::GeneralName;
 
@@ -252,13 +251,8 @@ async fn attest(
 
     // Create a relative distinguished name.
     let uuid = uuid::Uuid::new_v4();
-    let name = format!("CN={}.foo.bar.hub.profian.com", uuid);
-    let subject = RdnSequence::encode_from_string(&name).or(Err(ISE))?;
+    let subject = RdnSequence::encode_from_string("CN=foo.bar.hub.profian.com").or(Err(ISE))?;
     let subject = RdnSequence::from_der(&subject).or(Err(ISE))?;
-
-    // Get the next serial number.
-    let mut serial = [0u8; 16];
-    SystemRandom::new().fill(&mut serial).or(Err(ISE))?;
 
     // Add the configured subject alt name.
     let mut san: Option<Vec<u8>> = None;
@@ -280,7 +274,7 @@ async fn attest(
     // Create the new certificate.
     let tbs = TbsCertificate {
         version: x509::Version::V3,
-        serial_number: UIntBytes::new(&serial).or(Err(ISE))?,
+        serial_number: UIntBytes::new(uuid.as_bytes()).or(Err(ISE))?,
         signature: isskey.signs_with().or(Err(ISE))?,
         issuer: issuer.tbs_certificate.subject.clone(),
         validity,
