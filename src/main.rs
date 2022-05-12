@@ -24,12 +24,15 @@ use axum::Router;
 use hyper::StatusCode;
 use mime::Mime;
 
-use const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME};
+use const_oid::db::rfc5280::{
+    ID_CE_BASIC_CONSTRAINTS, ID_CE_EXT_KEY_USAGE, ID_CE_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME,
+    ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH,
+};
 use const_oid::db::rfc5912::ID_EXTENSION_REQ;
 use der::asn1::{GeneralizedTime, Ia5String, UIntBytes};
 use der::{Decodable, Encodable};
 use pkcs8::PrivateKeyInfo;
-use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages, SubjectAltName};
+use x509::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages, SubjectAltName};
 use x509::name::RdnSequence;
 use x509::request::{CertReq, ExtensionReq};
 use x509::time::{Time, Validity};
@@ -265,6 +268,16 @@ async fn attest(
         extn_id: ID_CE_SUBJECT_ALT_NAME,
         critical: false,
         extn_value: &sans,
+    });
+
+    // Add extended key usage.
+    let eku = ExtendedKeyUsage(vec![ID_KP_SERVER_AUTH, ID_KP_CLIENT_AUTH])
+        .to_vec()
+        .or(Err(ISE))?;
+    extensions.push(x509::ext::Extension {
+        extn_id: ID_CE_EXT_KEY_USAGE,
+        critical: false,
+        extn_value: &eku,
     });
 
     // Generate the instance id.
