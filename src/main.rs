@@ -249,27 +249,26 @@ async fn attest(
         not_after: Time::try_from(end).or(Err(ISE))?,
     };
 
-    // Create a relative distinguished name.
-    let uuid = uuid::Uuid::new_v4();
-    let subject = RdnSequence::encode_from_string("CN=foo.bar.hub.profian.com").or(Err(ISE))?;
-    let subject = RdnSequence::from_der(&subject).or(Err(ISE))?;
+    // Create the basic subject alt name.
+    let mut sans = vec![GeneralName::DnsName(
+        Ia5String::new("foo.bar.hub.profian.com").or(Err(ISE))?,
+    )];
 
-    // Add the configured subject alt name.
-    let mut san: Option<Vec<u8>> = None;
+    // Optionally, add the configured subject alt name.
     if let Some(name) = state.san.as_ref() {
-        let name = Ia5String::new(name).or(Err(ISE))?;
-        let name = GeneralName::DnsName(name);
-        let name = SubjectAltName(vec![name]);
-        let name = name.to_vec().or(Err(ISE))?;
-        san = Some(name);
+        sans.push(GeneralName::DnsName(Ia5String::new(name).or(Err(ISE))?));
     }
-    if let Some(san) = san.as_ref() {
-        extensions.push(x509::ext::Extension {
-            extn_id: ID_CE_SUBJECT_ALT_NAME,
-            critical: false,
-            extn_value: san,
-        });
-    }
+
+    // Encode the subject alt name.
+    let sans: Vec<u8> = SubjectAltName(sans).to_vec().or(Err(ISE))?;
+    extensions.push(x509::ext::Extension {
+        extn_id: ID_CE_SUBJECT_ALT_NAME,
+        critical: false,
+        extn_value: &sans,
+    });
+
+    // Generate the instance id.
+    let uuid = uuid::Uuid::new_v4();
 
     // Create the new certificate.
     let tbs = TbsCertificate {
@@ -278,7 +277,7 @@ async fn attest(
         signature: isskey.signs_with().or(Err(ISE))?,
         issuer: issuer.tbs_certificate.subject.clone(),
         validity,
-        subject,
+        subject: RdnSequence(Vec::new()),
         subject_public_key_info: cri.public_key,
         issuer_unique_id: issuer.tbs_certificate.subject_unique_id,
         subject_unique_id: None,
