@@ -243,7 +243,7 @@ async fn attest(
 
     // Get the current time and the expiration of the cert.
     let now = SystemTime::now();
-    let end = now + Duration::from_secs(60 * 60 * 24);
+    let end = now + Duration::from_secs(60 * 60 * 24 * 28);
     let validity = Validity {
         not_before: Time::try_from(now).or(Err(ISE))?,
         not_after: Time::try_from(end).or(Err(ISE))?,
