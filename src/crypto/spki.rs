@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use const_oid::ObjectIdentifier;
 use der::{Any, Decodable, Sequence};
 use ring::signature::VerificationAlgorithm as VerAlg;
