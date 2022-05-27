@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::array::TryFromSliceError;
 
 pub trait Steal<T> {
