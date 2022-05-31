@@ -11,16 +11,13 @@ mod ext;
 
 use crypto::*;
 use ext::{kvm::Kvm, sgx::Sgx, snp::Snp, ExtVerifier};
-use rustls_pemfile::Item;
 use x509::ext::pkix::name::GeneralName;
 
-use std::fs::read_to_string;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use anyhow::Context;
 use axum::body::Bytes;
 use axum::extract::{Extension, TypedHeader};
 use axum::headers::ContentType;
@@ -45,6 +42,15 @@ use x509::{Certificate, PkiPath, TbsCertificate};
 
 use clap::Parser;
 use zeroize::Zeroizing;
+
+#[cfg(not(target_arch = "wasm32"))]
+use anyhow::Context;
+#[cfg(not(target_arch = "wasm32"))]
+use rustls_pemfile::Item;
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::read_to_string;
+#[cfg(not(target_arch = "wasm32"))]
+use std::net::SocketAddr;
 
 const PKCS10: &str = "application/pkcs10";
 
@@ -86,30 +92,45 @@ struct State {
 }
 
 impl State {
+    #[allow(unused_variables)]
     pub fn load(
         san: Option<String>,
         key: impl AsRef<Path>,
         crt: impl AsRef<Path>,
     ) -> anyhow::Result<Self> {
         // Load the key file.
-        let mut key = std::io::BufReader::new(std::fs::File::open(key)?);
-        let key = match rustls_pemfile::read_one(&mut key)? {
-            Some(Item::PKCS8Key(buf)) => Zeroizing::new(buf),
-            _ => return Err(anyhow!("invalid key file")),
-        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut key = std::io::BufReader::new(std::fs::File::open(key)?);
+            let key = match rustls_pemfile::read_one(&mut key)? {
+                Some(Item::PKCS8Key(buf)) => Zeroizing::new(buf),
+                _ => return Err(anyhow!("invalid key file")),
+            };
 
-        // Load the crt file.
-        let mut crt = std::io::BufReader::new(std::fs::File::open(crt)?);
-        let crt = match rustls_pemfile::read_one(&mut crt)? {
-            Some(Item::X509Certificate(buf)) => buf,
-            _ => return Err(anyhow!("invalid key file")),
-        };
+            // Load the crt file.
+            let mut crt = std::io::BufReader::new(std::fs::File::open(crt)?);
+            let crt = match rustls_pemfile::read_one(&mut crt)? {
+                Some(Item::X509Certificate(buf)) => buf,
+                _ => return Err(anyhow!("invalid key file")),
+            };
 
-        // Validate the syntax of the files.
-        PrivateKeyInfo::from_der(key.as_ref())?;
-        Certificate::from_der(crt.as_ref())?;
+            // Validate the syntax of the files.
+            PrivateKeyInfo::from_der(key.as_ref())?;
+            Certificate::from_der(crt.as_ref())?;
 
-        Ok(Self { key, crt, san })
+            return Ok(Self { key, crt, san });
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            const CRT: &[u8] = include_bytes!("../certs/test/crt.der");
+            const KEY: &[u8] = include_bytes!("../certs/test/key.der");
+
+            Ok(State {
+                key: KEY.to_owned().into(),
+                crt: CRT.into(),
+                san: None,
+            })
+        }
     }
 
     pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
@@ -170,6 +191,31 @@ impl State {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> anyhow::Result<()> {
+    use std::os::wasi::io::FromRawFd;
+
+    tracing_subscriber::fmt::init();
+
+    let args = Args::parse();
+    let state = match (args.key, args.crt, args.host) {
+        (None, None, Some(host)) => State::generate(args.san, &host)?,
+        (Some(key), Some(crt), _) => State::load(args.san, key, crt)?,
+        _ => panic!("invalid configuration"),
+    };
+
+    let std_listener = unsafe { std::net::TcpListener::from_raw_fd(3) };
+    std_listener.set_nonblocking(true).unwrap();
+    axum::Server::from_tcp(std_listener)
+        .unwrap()
+        .serve(app(state).into_make_service())
+        .await?;
+
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -188,7 +234,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let args = Args::parse_from(processed_args);
-    let addr = SocketAddr::from((args.addr, args.port));
     let state = match (args.key, args.crt, args.host) {
         (None, None, Some(host)) => State::generate(args.san, &host)?,
         (Some(key), Some(crt), _) => State::load(args.san, key, crt)?,
@@ -198,6 +243,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    let addr = SocketAddr::from((args.addr, args.port));
     tracing::debug!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app(state).into_make_service())
