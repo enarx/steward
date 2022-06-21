@@ -168,7 +168,10 @@ async fn main() -> anyhow::Result<()> {
     let state = match (args.key, args.crt, args.host) {
         (None, None, Some(host)) => State::generate(args.san, &host)?,
         (Some(key), Some(crt), _) => State::load(args.san, key, crt)?,
-        _ => panic!("invalid configuration"),
+        _ => {
+            eprintln!("Either:\n* Specify the public key `--crt` and private key `--key`, or\n* Specify the host `--host`.\n\nRun with `--help` for more information.");
+            return Err(anyhow!("invalid configuration"));
+        }
     };
 
     tracing::debug!("listening on {}", addr);
