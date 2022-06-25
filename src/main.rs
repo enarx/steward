@@ -79,6 +79,7 @@ struct Args {
 }
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(Clone))]
 struct State {
     key: Zeroizing<Vec<u8>>,
     crt: Vec<u8>,
@@ -347,19 +348,17 @@ mod tests {
         use x509::request::CertReqInfo;
         use x509::{ext::Extension, name::RdnSequence};
 
+        use axum::response::Response;
         use http::{header::CONTENT_TYPE, Request};
         use hyper::Body;
         use tower::ServiceExt; // for `app.oneshot()`
 
-        const CRT: &[u8] = include_bytes!("../certs/test/crt.der");
-        const KEY: &[u8] = include_bytes!("../certs/test/key.der");
+        fn certificates_state() -> State {
+            State::load(None, "testdata/ca.key", "testdata/ca.crt").unwrap()
+        }
 
-        fn state() -> State {
-            State {
-                key: KEY.to_owned().into(),
-                crt: CRT.into(),
-                san: None,
-            }
+        fn hostname_state() -> State {
+            State::generate(None, "localhost").unwrap()
         }
 
         fn cr(curve: ObjectIdentifier, exts: Vec<Extension<'_>>) -> Vec<u8> {
@@ -386,6 +385,15 @@ mod tests {
             cri.sign(&pki).unwrap()
         }
 
+        async fn attest_response(state: State, response: Response) {
+            let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let path = PkiPath::from_der(&body).unwrap();
+            let issr = Certificate::from_der(&state.crt).unwrap();
+            assert_eq!(2, path.0.len());
+            assert_eq!(issr, path.0[0]);
+            issr.tbs_certificate.verify_crt(&path.0[1]).unwrap();
+        }
+
         #[test]
         fn reencode() {
             let encoded = cr(SECP_256_R_1, vec![]);
@@ -401,7 +409,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn kvm() {
+        async fn kvm_certs() {
             let ext = Extension {
                 extn_id: Kvm::OID,
                 critical: false,
@@ -415,19 +423,34 @@ mod tests {
                 .body(Body::from(cr(SECP_256_R_1, vec![ext])))
                 .unwrap();
 
-            let response = app(state()).oneshot(request).await.unwrap();
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
-
-            let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            let path = PkiPath::from_der(&body).unwrap();
-            let issr = Certificate::from_der(CRT).unwrap();
-            assert_eq!(2, path.0.len());
-            assert_eq!(issr, path.0[0]);
-            issr.tbs_certificate.verify_crt(&path.0[1]).unwrap();
+            attest_response(certificates_state(), response).await;
         }
 
         #[tokio::test]
-        async fn sgx() {
+        async fn kvm_hostname() {
+            let ext = Extension {
+                extn_id: Kvm::OID,
+                critical: false,
+                extn_value: &[],
+            };
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(cr(SECP_256_R_1, vec![ext])))
+                .unwrap();
+
+            let state = hostname_state();
+            let response = app(state.clone()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            attest_response(state, response).await;
+        }
+
+        #[tokio::test]
+        async fn sgx_certs() {
             for quote in [
                 include_bytes!("ext/sgx/quote.unknown").as_slice(),
                 include_bytes!("ext/sgx/quote.icelake").as_slice(),
@@ -445,20 +468,40 @@ mod tests {
                     .body(Body::from(cr(SECP_256_R_1, vec![ext])))
                     .unwrap();
 
-                let response = app(state()).oneshot(request).await.unwrap();
+                let response = app(certificates_state()).oneshot(request).await.unwrap();
                 assert_eq!(response.status(), StatusCode::OK);
-
-                let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-                let path = PkiPath::from_der(&body).unwrap();
-                let issr = Certificate::from_der(CRT).unwrap();
-                assert_eq!(2, path.0.len());
-                assert_eq!(issr, path.0[0]);
-                issr.tbs_certificate.verify_crt(&path.0[1]).unwrap();
+                attest_response(certificates_state(), response).await;
             }
         }
 
         #[tokio::test]
-        async fn snp() {
+        async fn sgx_hostname() {
+            for quote in [
+                include_bytes!("ext/sgx/quote.unknown").as_slice(),
+                include_bytes!("ext/sgx/quote.icelake").as_slice(),
+            ] {
+                let ext = Extension {
+                    extn_id: Sgx::OID,
+                    critical: false,
+                    extn_value: quote,
+                };
+
+                let request = Request::builder()
+                    .method("POST")
+                    .uri("/")
+                    .header(CONTENT_TYPE, PKCS10)
+                    .body(Body::from(cr(SECP_256_R_1, vec![ext])))
+                    .unwrap();
+
+                let state = hostname_state();
+                let response = app(state.clone()).oneshot(request).await.unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                attest_response(state, response).await;
+            }
+        }
+
+        #[tokio::test]
+        async fn snp_certs() {
             let evidence = ext::snp::Evidence {
                 vcek: Certificate::from_der(include_bytes!("ext/snp/milan.vcek")).unwrap(),
                 report: include_bytes!("ext/snp/milan.rprt"),
@@ -479,19 +522,41 @@ mod tests {
                 .body(Body::from(cr(SECP_384_R_1, vec![ext])))
                 .unwrap();
 
-            let response = app(state()).oneshot(request).await.unwrap();
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
-
-            let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            let path = PkiPath::from_der(&body).unwrap();
-            let issr = Certificate::from_der(CRT).unwrap();
-            assert_eq!(2, path.0.len());
-            assert_eq!(issr, path.0[0]);
-            issr.tbs_certificate.verify_crt(&path.0[1]).unwrap();
+            attest_response(certificates_state(), response).await;
         }
 
         #[tokio::test]
-        async fn err_no_attestation() {
+        async fn snp_hostname() {
+            let evidence = ext::snp::Evidence {
+                vcek: Certificate::from_der(include_bytes!("ext/snp/milan.vcek")).unwrap(),
+                report: include_bytes!("ext/snp/milan.rprt"),
+            }
+            .to_vec()
+            .unwrap();
+
+            let ext = Extension {
+                extn_id: Snp::OID,
+                critical: false,
+                extn_value: &evidence,
+            };
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(cr(SECP_384_R_1, vec![ext])))
+                .unwrap();
+
+            let state = hostname_state();
+            let response = app(state.clone()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            attest_response(state, response).await;
+        }
+
+        #[tokio::test]
+        async fn err_no_attestation_certs() {
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -499,7 +564,20 @@ mod tests {
                 .body(Body::from(cr(SECP_256_R_1, vec![])))
                 .unwrap();
 
-            let response = app(state()).oneshot(request).await.unwrap();
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        #[tokio::test]
+        async fn err_no_attestation_hostname() {
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(cr(SECP_256_R_1, vec![])))
+                .unwrap();
+
+            let response = app(hostname_state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         }
 
@@ -511,7 +589,7 @@ mod tests {
                 .body(Body::from(cr(SECP_256_R_1, vec![])))
                 .unwrap();
 
-            let response = app(state()).oneshot(request).await.unwrap();
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -524,7 +602,7 @@ mod tests {
                 .body(Body::from(cr(SECP_256_R_1, vec![])))
                 .unwrap();
 
-            let response = app(state()).oneshot(request).await.unwrap();
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -537,7 +615,7 @@ mod tests {
                 .body(Body::empty())
                 .unwrap();
 
-            let response = app(state()).oneshot(request).await.unwrap();
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -550,7 +628,7 @@ mod tests {
                 .body(Body::from(vec![0x01, 0x02, 0x03, 0x04]))
                 .unwrap();
 
-            let response = app(state()).oneshot(request).await.unwrap();
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
@@ -567,7 +645,7 @@ mod tests {
                 .body(Body::from(cr))
                 .unwrap();
 
-            let response = app(state()).oneshot(request).await.unwrap();
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
     }
