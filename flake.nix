@@ -1,19 +1,19 @@
 {
   description = "Profian Steward";
 
-  inputs.cargo2nix.inputs.flake-compat.follows = "flake-compat";
-  inputs.cargo2nix.inputs.flake-utils.follows = "flake-utils";
-  inputs.cargo2nix.inputs.nixpkgs.follows = "nixpkgs";
-  inputs.cargo2nix.inputs.rust-overlay.follows = "rust-overlay";
-  inputs.cargo2nix.url = github:cargo2nix/cargo2nix;
+  inputs.fenix.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.fenix.url = github:nix-community/fenix;
   inputs.flake-compat.flake = false;
   inputs.flake-compat.url = github:edolstra/flake-compat;
   inputs.flake-utils.url = github:numtide/flake-utils;
   inputs.nixpkgs.url = github:NixOS/nixpkgs;
+  inputs.rust-overlay.inputs.flake-utils.follows = "flake-utils";
+  inputs.rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.rust-overlay.url = github:oxalica/rust-overlay;
 
   outputs = {
     self,
-    cargo2nix,
+    fenix,
     flake-utils,
     nixpkgs,
     ...
@@ -22,20 +22,33 @@
       system: let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [cargo2nix.overlays.default];
+          overlays = [];
         };
 
-        cargo2nixBin = cargo2nix.packages.${system}.cargo2nix;
-        devRust = pkgs.rust-bin.fromRustupToolchainFile "${self}/rust-toolchain.toml";
+        devRust = fenix.packages.${system}.fromToolchainFile {file = "${self}/rust-toolchain.toml";};
 
         cargo.toml = builtins.fromTOML (builtins.readFile "${self}/Cargo.toml");
 
-        mkBin = pkgs:
-          (
-            (pkgs.rustBuilder.makePackageSet {
-              packageFun = import "${self}/Cargo.nix";
-              rustVersion = "1.61.0";
-              workspaceSrc =
+        buildPackage = targetPkgs: rustTargets: extraArgs: let
+          rust = with fenix.packages.${system};
+            combine (
+              [
+                minimal.cargo
+                minimal.rustc
+              ]
+              ++ map (target: targets.${target}.latest.rust-std) rustTargets
+            );
+        in
+          (targetPkgs.makeRustPlatform {
+            rustc = rust;
+            cargo = rust;
+          })
+          .buildRustPackage
+          (extraArgs
+            // {
+              inherit (cargo.toml.package) name version;
+
+              src =
                 pkgs.nix-gitignore.gitignoreRecursiveSource [
                   "*.nix"
                   "*.yml"
@@ -45,20 +58,23 @@
                   "rust-toolchain.toml"
                 ]
                 self;
-            })
-            .workspace
-            ."${cargo.toml.package.name}" {}
-          )
-          .bin;
 
-        nativeBin = mkBin pkgs;
-        x86_64LinuxMuslBin = mkBin (import nixpkgs {
-          inherit system;
-          crossSystem = {
-            config = "x86_64-unknown-linux-musl";
+              cargoLock.lockFileContents = builtins.readFile "${self}/Cargo.lock";
+            });
+
+        nativeBin = buildPackage pkgs [] {};
+        x86_64LinuxMuslBin =
+          buildPackage (import nixpkgs {
+            inherit system;
+            crossSystem = {
+              config = "x86_64-unknown-linux-musl";
+            };
+            overlays = [];
+          }) [
+            "x86_64-unknown-linux-musl"
+          ] {
+            meta.mainProgram = cargo.toml.package.name;
           };
-          overlays = [cargo2nix.overlays.default];
-        });
 
         buildImage = bin:
           pkgs.dockerTools.buildImage {
@@ -83,8 +99,6 @@
         devShells.default = pkgs.mkShell {
           buildInputs = [
             pkgs.openssl
-
-            cargo2nixBin
 
             devRust
           ];
