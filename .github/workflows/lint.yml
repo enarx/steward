@@ -17,3 +17,12 @@ jobs:
       with:
         command: clippy
         args: --workspace --all-features -- -D warnings
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2.4.0
+    - uses: cachix/install-nix-action@v17
+    - name: nix flake check
+      run: nix flake check
+    - name: nix fmt
+      run: nix fmt ./flake.nix ./shell.nix
