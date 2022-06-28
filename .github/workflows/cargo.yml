@@ -61,22 +61,6 @@ jobs:
         with:
           command: build
           args: --release
-
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features
-
   readme:
     name: readme
     runs-on: ubuntu-latest
