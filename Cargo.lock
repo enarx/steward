@@ -852,7 +852,8 @@ dependencies = [
 [[package]]
 name = "sgx"
 version = "0.5.0"
-source = "git+https://github.com/enarx/sgx#dce07198d67ac9287ea00eaf0b407a6fa9ca308c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "536c96a764daacb2abe1e22834d5f48c9e285e7cf3683fb40e9d426ea0907437"
 dependencies = [
  "bitflags",
  "x86_64",
