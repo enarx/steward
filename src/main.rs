@@ -14,7 +14,7 @@ use ext::{kvm::Kvm, sgx::Sgx, snp::Snp, ExtVerifier};
 use rustls_pemfile::Item;
 use x509::ext::pkix::name::GeneralName;
 
-use std::fs::read_to_string;
+use std::fs::read;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -52,10 +52,9 @@ const PKCS10: &str = "application/pkcs10";
 ///
 /// Any command-line options listed here may be specified by one or
 /// more configuration files, which can be used by passing the
-/// name of the file on the command-line with the syntax `@my_file`.
-/// Each line of the configuration file will be interpreted as one
-/// argument to the shell, so keys and values must either be
-/// separated by line breaks or by an `=` as in `--foo=bar`.
+/// name of the file on the command-line with the syntax `@config.toml`.
+/// The configuration file must contain valid TOML table mapping argument
+/// names to their values.
 #[derive(Clone, Debug, Parser)]
 #[clap(author, version, about)]
 struct Args {
@@ -174,20 +173,38 @@ impl State {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let mut processed_args = Vec::new();
-    for arg in std::env::args() {
-        match arg.strip_prefix('@') {
-            None => processed_args.push(arg),
-            Some(path) => {
-                let config = read_to_string(path).context("Failed to read config file")?;
-                for line in config.lines() {
-                    processed_args.push(line.to_string());
+    let args = std::env::args()
+        .try_fold(Vec::new(), |mut args, arg| {
+            if let Some(path) = arg.strip_prefix('@') {
+                let conf = read(path).context(format!("failed to read config file at `{path}`"))?;
+                match toml::from_slice(&conf)
+                    .context(format!("failed to parse config file at `{path}` as TOML"))?
+                {
+                    toml::Value::Table(kv) => kv.into_iter().try_for_each(|(k, v)| {
+                        match v {
+                            toml::Value::String(v) => args.push(format!("--{k}={v}")),
+                            toml::Value::Integer(v) => args.push(format!("--{k}={v}")),
+                            toml::Value::Float(v) => args.push(format!("--{k}={v}")),
+                            toml::Value::Boolean(v) => {
+                                if v {
+                                    args.push(format!("--{k}"))
+                                }
+                            }
+                            _ => bail!(
+                                "unsupported value type for field `{k}` in config file at `{path}`"
+                            ),
+                        }
+                        Ok(())
+                    })?,
+                    _ => bail!("invalid config file format in file at `{path}`"),
                 }
+            } else {
+                args.push(arg);
             }
-        }
-    }
-
-    let args = Args::parse_from(processed_args);
+            Ok(args)
+        })
+        .map(Args::parse_from)
+        .context("Failed to parse arguments")?;
     let addr = SocketAddr::from((args.addr, args.port));
     let state = match (args.key, args.crt, args.host) {
         (None, None, Some(host)) => State::generate(args.san, &host)?,

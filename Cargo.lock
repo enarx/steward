@@ -962,6 +962,7 @@ dependencies = [
  "spki",
  "testaso",
  "tokio",
+ "toml",
  "tower",
  "tracing",
  "tracing-subscriber",

@@ -30,6 +30,7 @@ tracing = "^0.1.29"
 anyhow = "^1.0.55"
 base64 = "^0.13.0"
 mime = "^0.3.16"
+toml = { version = "0.5.9", default-features = false }
 
 [dev-dependencies]
 tower = { version = "^0.4.11", features = ["util"] }
