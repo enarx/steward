@@ -31,8 +31,8 @@ use const_oid::db::rfc5280::{
     ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH,
 };
 use const_oid::db::rfc5912::ID_EXTENSION_REQ;
-use der::asn1::{GeneralizedTime, Ia5String, UIntBytes};
-use der::{Decodable, Encodable};
+use der::asn1::{GeneralizedTime, Ia5StringRef, UIntRef};
+use der::{Decode, Encode};
 use pkcs8::PrivateKeyInfo;
 use rustls_pemfile::Item;
 use x509::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages, SubjectAltName};
@@ -167,7 +167,7 @@ impl State {
         // Create the certificate body.
         let tbs = TbsCertificate {
             version: x509::Version::V3,
-            serial_number: UIntBytes::new(&[0u8])?,
+            serial_number: UIntRef::new(&[0u8])?,
             signature: pki.signs_with()?,
             issuer: rdns.clone(),
             validity,
@@ -324,12 +324,12 @@ async fn attest(
 
     // Create the basic subject alt name.
     let mut sans = vec![GeneralName::DnsName(
-        Ia5String::new("foo.bar.hub.profian.com").or(Err(ISE))?,
+        Ia5StringRef::new("foo.bar.hub.profian.com").or(Err(ISE))?,
     )];
 
     // Optionally, add the configured subject alt name.
     if let Some(name) = state.san.as_ref() {
-        sans.push(GeneralName::DnsName(Ia5String::new(name).or(Err(ISE))?));
+        sans.push(GeneralName::DnsName(Ia5StringRef::new(name).or(Err(ISE))?));
     }
 
     // Encode the subject alt name.
@@ -356,7 +356,7 @@ async fn attest(
     // Create the new certificate.
     let tbs = TbsCertificate {
         version: x509::Version::V3,
-        serial_number: UIntBytes::new(uuid.as_bytes()).or(Err(ISE))?,
+        serial_number: UIntRef::new(uuid.as_bytes()).or(Err(ISE))?,
         signature: isskey.signs_with().or(Err(ISE))?,
         issuer: issuer.tbs_certificate.subject.clone(),
         validity,
@@ -382,7 +382,7 @@ mod tests {
 
         use const_oid::db::rfc5912::{SECP_256_R_1, SECP_384_R_1};
         use const_oid::ObjectIdentifier;
-        use der::{Any, Encodable};
+        use der::{AnyRef, Encode};
         use x509::attr::Attribute;
         use x509::request::CertReqInfo;
         use x509::{ext::Extension, name::RdnSequence};
@@ -407,7 +407,7 @@ mod tests {
             let spki = pki.public_key().unwrap();
 
             let req = ExtensionReq::from(exts).to_vec().unwrap();
-            let any = Any::from_der(&req).unwrap();
+            let any = AnyRef::from_der(&req).unwrap();
             let att = Attribute {
                 oid: ID_EXTENSION_REQ,
                 values: vec![any].try_into().unwrap(),
@@ -429,9 +429,9 @@ mod tests {
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
             let path = PkiPath::from_der(&body).unwrap();
             let issr = Certificate::from_der(&state.crt).unwrap();
-            assert_eq!(2, path.0.len());
-            assert_eq!(issr, path.0[0]);
-            issr.tbs_certificate.verify_crt(&path.0[1]).unwrap();
+            assert_eq!(2, path.len());
+            assert_eq!(issr, path[0]);
+            issr.tbs_certificate.verify_crt(&path[1]).unwrap();
         }
 
         #[test]

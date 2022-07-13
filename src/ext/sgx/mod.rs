@@ -11,7 +11,7 @@ use std::fmt::Debug;
 
 use anyhow::{anyhow, Result};
 use const_oid::ObjectIdentifier;
-use der::{Decodable, Encodable};
+use der::{Decode, Encode};
 use sgx::parameters::{Attributes, MiscSelect};
 use sha2::{Digest, Sha256};
 use x509::{ext::Extension, request::CertReqInfo, Certificate, TbsCertificate};

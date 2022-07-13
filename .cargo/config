@@ -3,4 +3,5 @@ target = "wasm32-wasi"
 rustflags = ["--cfg", "tokio_unstable"]
 
 [target.wasm32-wasi]
-runner = ["enarx", "run", "--wasmcfgfile", "Enarx.toml"]
+#runner = ["enarx", "run", "--wasmcfgfile", "Enarx.toml"]
+runner = ["./wasmtime", "run", "--dir=testdata/", "--wasi-modules", "experimental-wasi-crypto", "--tcplisten", "127.0.0.1:8080", "--env", "FD_COUNT=3"]
