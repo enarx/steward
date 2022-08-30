@@ -132,7 +132,10 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
                     Ok(kp.sign(&rng, body)?.as_ref().to_vec())
                 }
 
-                _ => Err(anyhow!("unsupported")),
+                ((x, y), z) => {
+                    eprintln!("pki.rs sign() unsupported {:?}, {:?}, {:?}", x, y, z);
+                    Err(anyhow!("unsupported"))
+                } //_ => Err(anyhow!("unsupported")),
             }
         }
 

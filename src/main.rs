@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 #![warn(rust_2018_idioms, unused_lifetimes, unused_qualifications, clippy::all)]
+#![allow(unused_imports)]
 
 #[macro_use]
 extern crate anyhow;
@@ -30,11 +31,12 @@ use const_oid::db::rfc5280::{
     ID_CE_BASIC_CONSTRAINTS, ID_CE_EXT_KEY_USAGE, ID_CE_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME,
     ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH,
 };
-use const_oid::db::rfc5912::ID_EXTENSION_REQ;
+use const_oid::db::rfc5912::{ECDSA_WITH_SHA_256, ECDSA_WITH_SHA_384, ID_EXTENSION_REQ};
 use der::asn1::{GeneralizedTime, Ia5StringRef, UIntRef};
 use der::{Decode, Encode};
 use pkcs8::PrivateKeyInfo;
 use rustls_pemfile::Item;
+use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
 use x509::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages, SubjectAltName};
 use x509::name::RdnSequence;
 use x509::request::{CertReq, ExtensionReq};
@@ -47,6 +49,7 @@ use zeroize::Zeroizing;
 
 #[cfg(not(target_arch = "wasm32"))]
 use anyhow::Context;
+use const_oid::ObjectIdentifier;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::read;
 #[cfg(not(target_arch = "wasm32"))]
@@ -54,8 +57,24 @@ use std::net::SocketAddr;
 
 #[cfg(target_arch = "wasm32")]
 use pem;
+#[cfg(target_arch = "wasm32")]
+use wasi_crypto_guest;
 
 const PKCS10: &str = "application/pkcs10";
+
+use const_oid::db::rfc5912::{
+    ID_EC_PUBLIC_KEY as ECPK, SECP_256_R_1 as P256, SECP_384_R_1 as P384,
+};
+
+const ES256: AlgorithmIdentifier<'static> = AlgorithmIdentifier {
+    oid: ECDSA_WITH_SHA_256,
+    parameters: None,
+};
+
+const ES384: AlgorithmIdentifier<'static> = AlgorithmIdentifier {
+    oid: ECDSA_WITH_SHA_384,
+    parameters: None,
+};
 
 /// Attestation server for use with Enarx.
 ///
@@ -89,9 +108,15 @@ struct Args {
 #[derive(Debug)]
 #[cfg_attr(test, derive(Clone))]
 struct State {
+    #[cfg(not(target_os = "wasi"))]
     key: Zeroizing<Vec<u8>>,
     crt: Vec<u8>,
     san: Option<String>,
+
+    #[cfg(target_os = "wasi")]
+    kp: Arc<wasi_crypto_guest::signatures::SignatureKeyPair>,
+    #[cfg(target_os = "wasi")]
+    oid: ObjectIdentifier,
 }
 
 impl State {
@@ -116,10 +141,46 @@ impl State {
         };
 
         // Validate the syntax of the files.
-        PrivateKeyInfo::from_der(key.as_ref())?;
-        Certificate::from_der(crt.as_ref())?;
+        let skey_obj = PrivateKeyInfo::from_der(key.as_ref())?;
+        let crt_obj = Certificate::from_der(crt.as_ref())?;
 
-        Ok(Self { key, crt, san })
+        println!(
+            "Cert signature algo oid: {:?}",
+            crt_obj.signature_algorithm.oid
+        );
+        println!(
+            "Cert tbs_certificate signature algo oid: {:?}",
+            crt_obj.tbs_certificate.signature.oid
+        );
+        println!("Key oid: {:?}", skey_obj.algorithm.oid);
+
+        #[cfg(not(target_os = "wasi"))]
+        return Ok(Self { key, crt, san });
+
+        #[cfg(target_os = "wasi")]
+        {
+            let sec_key = PrivateKeyInfo::from_der(key.as_slice())?; // Error: key doesn't live long enough
+            let (algo_name, algo_oid) = match sec_key.algorithm.oid {
+                ECDSA_WITH_SHA_256 => ("ECDSA_P256_SHA256", ES256.oid),
+                ECDSA_WITH_SHA_384 => ("ECDSA_P384_SHA384", ES384.oid),
+                x => {
+                    return Err(anyhow!("Incorrect OID {:?}", x));
+                }
+            };
+            let kp = match wasi_crypto_guest::signatures::SignatureKeyPair::from_raw(
+                algo_name,
+                key.as_slice(),
+            ) {
+                Ok(x) => x,
+                Err(e) => return Err(anyhow!("SignatureKeyPair::from_raw() error {:?}", e)),
+            };
+            Ok(Self {
+                crt,
+                san,
+                kp: Arc::new(kp),
+                oid: algo_oid,
+            })
+        }
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -130,15 +191,35 @@ impl State {
         let crt = pem::parse(CRT)?;
         let key = pem::parse(KEY)?;
 
+        let key_contents = key.contents.clone();
+        let sec_key = PrivateKeyInfo::from_der(&key_contents)?; // Error: key doesn't live long enough
+        let (algo_name, algo_oid) = match sec_key.algorithm.oid {
+            ECDSA_WITH_SHA_256 => ("ECDSA_P256_SHA256", ES256.oid),
+            ECDSA_WITH_SHA_384 => ("ECDSA_P384_SHA384", ES384.oid),
+            x => {
+                return Err(anyhow!("Incorrect OID {:?}", x));
+            }
+        };
+
+        let kp = match wasi_crypto_guest::signatures::SignatureKeyPair::from_raw(
+            algo_name,
+            sec_key.private_key,
+        ) {
+            Ok(x) => x,
+            Err(e) => return Err(anyhow!("SignatureKeyPair::from_raw() error {:?}", e)),
+        };
+
         Ok(State {
-            key: Zeroizing::new(key.contents),
             crt: crt.contents,
             san: None,
+            kp: Arc::new(kp),
+            oid: algo_oid,
         })
     }
 
+    #[cfg(not(target_os = "wasi"))]
     pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
-        use const_oid::db::rfc5912::SECP_256_R_1 as P256;
+        //use const_oid::db::rfc5912::SECP_256_R_1 as P256;
 
         // Generate the private key.
         let key = PrivateKeyInfo::generate(P256)?;
@@ -189,9 +270,103 @@ impl State {
             ]),
         };
 
+        println!(
+            "generate() tbs_certificate.signature oid: {:?}",
+            pki.signs_with()?.oid
+        );
+        println!(
+            "generate() tbs_certificate.subject_public_key_info oid: {:?}",
+            pki.public_key()?.algorithm.oid
+        );
+        println!("Key oid: {:?}", pki.algorithm.oid);
+
         // Self-sign the certificate.
         let crt = tbs.sign(&pki)?;
         Ok(Self { key, crt, san })
+    }
+
+    #[cfg(target_os = "wasi")]
+    pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
+        let kp =
+            match wasi_crypto_guest::signatures::SignatureKeyPair::generate("ECDSA_P256_SHA256") {
+                Ok(x) => x,
+                Err(e) => return Err(anyhow!("SignatureKeyPair::generate() error {:?}", e)),
+            };
+
+        // Create a relative distinguished name.
+        let rdns = RdnSequence::encode_from_string(&format!("CN={}", hostname))?;
+        let rdns = RdnSequence::from_der(&rdns)?;
+
+        // Create the extensions.
+        let ku = KeyUsage(KeyUsages::KeyCertSign.into()).to_vec()?;
+        let bc = BasicConstraints {
+            ca: true,
+            path_len_constraint: Some(0),
+        }
+        .to_vec()?;
+
+        // Create the certificate duration.
+        let now = SystemTime::now();
+        let dur = Duration::from_secs(60 * 60 * 24 * 365);
+        let validity = Validity {
+            not_before: Time::GeneralTime(GeneralizedTime::from_system_time(now)?),
+            not_after: Time::GeneralTime(GeneralizedTime::from_system_time(now + dur)?),
+        };
+
+        let pub_key_raw = match kp.publickey() {
+            Ok(x) => x,
+            Err(e) => return Err(anyhow!("SignatureKeyPair::publickey() error {:?}", e)),
+        };
+
+        let pub_key_raw = match pub_key_raw.raw() {
+            Ok(x) => x,
+            Err(e) => return Err(anyhow!("SignaturePublicKey::raw() error {:?}", e)),
+        };
+
+        let algo_ident = AlgorithmIdentifier {
+            oid: ECDSA_WITH_SHA_256,
+            parameters: None,
+        };
+
+        // Create the certificate body.
+        let tbs = TbsCertificate {
+            version: x509::Version::V3,
+            serial_number: UIntRef::new(&[0u8])?,
+            signature: AlgorithmIdentifier {
+                oid: P256,
+                parameters: None,
+            },
+            issuer: rdns.clone(),
+            validity,
+            subject: rdns,
+            subject_public_key_info: SubjectPublicKeyInfo {
+                algorithm: ES256,
+                subject_public_key: &pub_key_raw,
+            },
+            issuer_unique_id: None,
+            subject_unique_id: None,
+            extensions: Some(vec![
+                x509::ext::Extension {
+                    extn_id: ID_CE_KEY_USAGE,
+                    critical: true,
+                    extn_value: &ku,
+                },
+                x509::ext::Extension {
+                    extn_id: ID_CE_BASIC_CONSTRAINTS,
+                    critical: true,
+                    extn_value: &bc,
+                },
+            ]),
+        };
+
+        let crt = tbs.sign_kp(&kp)?;
+
+        Ok(Self {
+            crt,
+            kp: Arc::new(kp),
+            san,
+            oid: ECDSA_WITH_SHA_256,
+        })
     }
 }
 
@@ -250,7 +425,7 @@ fn app(state: State) -> Router {
     Router::new()
         .route("/", post(attest))
         .route("/", get(health))
-        .layer(Extension(Arc::new(state)))
+        .layer(Extension(Arc::new(state))) // Error `state` escapes the function body here
 }
 
 async fn health() -> StatusCode {
@@ -266,7 +441,7 @@ async fn attest(
 
     // Decode the signing certificate and key.
     let issuer = Certificate::from_der(&state.crt).or(Err(ISE))?;
-    let isskey = PrivateKeyInfo::from_der(&state.key).or(Err(ISE))?;
+    println!("attest() decoded state.cert");
 
     // Ensure the correct mime type.
     let mime: Mime = PKCS10.parse().unwrap();
@@ -277,6 +452,7 @@ async fn attest(
     // Decode and verify the certification request.
     let cr = CertReq::from_der(body.as_ref()).or(Err(StatusCode::BAD_REQUEST))?;
     let cri = cr.verify().or(Err(StatusCode::BAD_REQUEST))?;
+    println!("attest() decoded and verified CSR");
 
     // Validate requested extensions.
     let mut attested = false;
@@ -311,8 +487,11 @@ async fn attest(
         }
     }
     if !attested {
+        println!("attest() Attestation failed!");
         return Err(StatusCode::UNAUTHORIZED);
     }
+
+    println!("attest() Attestation succeeded");
 
     // Get the current time and the expiration of the cert.
     let now = SystemTime::now();
@@ -353,11 +532,22 @@ async fn attest(
     // Generate the instance id.
     let uuid = uuid::Uuid::new_v4();
 
+    #[cfg(not(target_os = "wasi"))]
+    let isskey = PrivateKeyInfo::from_der(&state.key).or(Err(ISE))?;
+
+    #[cfg(not(target_os = "wasi"))]
+    let algo_oid = isskey.signs_with().or(Err(ISE))?.oid;
+    #[cfg(target_os = "wasi")]
+    let algo_oid = state.oid.clone();
+
     // Create the new certificate.
     let tbs = TbsCertificate {
         version: x509::Version::V3,
         serial_number: UIntRef::new(uuid.as_bytes()).or(Err(ISE))?,
-        signature: isskey.signs_with().or(Err(ISE))?,
+        signature: AlgorithmIdentifier {
+            oid: algo_oid,
+            parameters: None,
+        },
         issuer: issuer.tbs_certificate.subject.clone(),
         validity,
         subject: RdnSequence(Vec::new()),
@@ -366,13 +556,49 @@ async fn attest(
         subject_unique_id: None,
         extensions: Some(extensions),
     };
+    println!("attest() created TbsCertificate");
 
     // Sign the certificate.
-    let crt = tbs.sign(&isskey).or(Err(ISE))?;
-    let crt = Certificate::from_der(&crt).or(Err(ISE))?;
+    #[cfg(target_os = "wasi")]
+    let crt = match tbs.sign_kp(&state.kp) {
+        //.or(Err(ISE))?;
+        Ok(x) => x,
+        Err(e) => {
+            eprintln!("attest() failed to sign cert: {:?}", e);
+            return Err(ISE);
+        }
+    };
+    #[cfg(not(target_os = "wasi"))]
+    let crt = match tbs.sign(&isskey) {
+        Ok(x) => x,
+        Err(e) => {
+            eprintln!("attest() failed to sign cert: {:?}", e);
+            return Err(ISE);
+        }
+    }; //.or(Err(ISE))?;
+    println!("Attest() cert signed");
+    let crt = match Certificate::from_der(&crt) {
+        //.or(Err(ISE))?;
+        Ok(x) => x,
+        Err(e) => {
+            eprintln!("Wasi attest() failed to sign cert: {:?}", e);
+            return Err(ISE);
+        }
+    };
+
+    println!("attest() TbsCertificate signed");
 
     // Create and return the PkiPath.
-    PkiPath::from(vec![issuer, crt]).to_vec().or(Err(ISE))
+    match PkiPath::from(vec![issuer, crt]).to_vec() {
+        Ok(x) => {
+            eprintln!("attest() PKI path Okay");
+            Ok(x)
+        }
+        Err(e) => {
+            eprintln!("attest() PKI path error {:?}", e);
+            Err(ISE)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -392,7 +618,7 @@ mod tests {
         use hyper::Body;
         use tower::ServiceExt; // for `app.oneshot()`
 
-        #[cfg(not(target_os = "wasi"))]
+        //#[cfg(not(target_os = "wasi"))]
         fn certificates_state() -> State {
             State::load(None, "testdata/ca.key", "testdata/ca.crt").unwrap()
         }
@@ -401,6 +627,7 @@ mod tests {
             State::generate(None, "localhost").unwrap()
         }
 
+        #[cfg(not(target_os = "wasi"))]
         fn cr(curve: ObjectIdentifier, exts: Vec<Extension<'_>>) -> Vec<u8> {
             let pki = PrivateKeyInfo::generate(curve).unwrap();
             let pki = PrivateKeyInfo::from_der(pki.as_ref()).unwrap();
@@ -412,6 +639,13 @@ mod tests {
                 oid: ID_EXTENSION_REQ,
                 values: vec![any].try_into().unwrap(),
             };
+
+            eprintln!(
+                "cr() curve: {:?}, SPKI: {:?}, PKI: {:?}",
+                curve,
+                spki.algorithm.oid,
+                pki.signs_with().unwrap().oid
+            );
 
             // Create a certification request information structure.
             let cri = CertReqInfo {
@@ -425,7 +659,50 @@ mod tests {
             cri.sign(&pki).unwrap()
         }
 
-        async fn attest_response(state: State, response: Response) {
+        #[cfg(target_os = "wasi")]
+        fn cr(curve: ObjectIdentifier, exts: Vec<Extension<'_>>) -> Vec<u8> {
+            let kp = wasi_crypto_guest::signatures::SignatureKeyPair::generate(
+                oid_to_wcrypto_string(curve),
+            )
+            .unwrap();
+            let spki = kp.publickey().unwrap();
+            let spki = spki.raw().unwrap();
+
+            let req = ExtensionReq::from(exts).to_vec().unwrap();
+            let any = AnyRef::from_der(&req).unwrap();
+            let att = Attribute {
+                oid: ID_EXTENSION_REQ,
+                values: vec![any].try_into().unwrap(),
+            };
+
+            let (cert_oid, sign_oid) = match curve {
+                SECP_256_R_1 => (ECPK, ECDSA_WITH_SHA_256),
+                SECP_384_R_1 => (ECPK, ECDSA_WITH_SHA_384),
+                x => {
+                    eprintln!("Unknown OID {:?}", x);
+                    unreachable!()
+                }
+            };
+
+            // Create a certification request information structure.
+            let cri = CertReqInfo {
+                version: x509::request::Version::V1,
+                attributes: vec![att].try_into().unwrap(),
+                subject: RdnSequence::default(),
+                public_key: SubjectPublicKeyInfo {
+                    algorithm: AlgorithmIdentifier {
+                        oid: cert_oid,
+                        parameters: None,
+                    },
+                    subject_public_key: &spki,
+                },
+            };
+
+            // Sign the request.
+            cri.sign_kp(&sign_oid, &kp).unwrap()
+        }
+
+        async fn attest_response(state: &State, response: Response) {
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
             let path = PkiPath::from_der(&body).unwrap();
             let issr = Certificate::from_der(&state.crt).unwrap();
@@ -449,7 +726,7 @@ mod tests {
         }
 
         #[tokio::test]
-        #[cfg(not(target_os = "wasi"))]
+        //#[cfg(not(target_os = "wasi"))]
         async fn kvm_certs() {
             let ext = Extension {
                 extn_id: Kvm::OID,
@@ -464,9 +741,12 @@ mod tests {
                 .body(Body::from(cr(SECP_256_R_1, vec![ext])))
                 .unwrap();
 
-            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            let response = app(certificates_state().clone())
+                .oneshot(request)
+                .await
+                .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
-            attest_response(certificates_state(), response).await;
+            attest_response(&certificates_state(), response).await;
         }
 
         #[tokio::test]
@@ -486,12 +766,13 @@ mod tests {
 
             let state = hostname_state();
             let response = app(state.clone()).oneshot(request).await.unwrap();
+            println!("KVM test response: {:}", response.status());
             assert_eq!(response.status(), StatusCode::OK);
-            attest_response(state, response).await;
+            attest_response(&state, response).await;
         }
 
         #[tokio::test]
-        #[cfg(not(target_os = "wasi"))]
+        //#[cfg(not(target_os = "wasi"))]
         async fn sgx_certs() {
             for quote in [
                 include_bytes!("ext/sgx/quote.unknown").as_slice(),
@@ -510,9 +791,12 @@ mod tests {
                     .body(Body::from(cr(SECP_256_R_1, vec![ext])))
                     .unwrap();
 
-                let response = app(certificates_state()).oneshot(request).await.unwrap();
+                let response = app(certificates_state().clone())
+                    .oneshot(request)
+                    .await
+                    .unwrap();
                 assert_eq!(response.status(), StatusCode::OK);
-                attest_response(certificates_state(), response).await;
+                attest_response(&certificates_state(), response).await;
             }
         }
 
@@ -538,7 +822,7 @@ mod tests {
                 let state = hostname_state();
                 let response = app(state.clone()).oneshot(request).await.unwrap();
                 assert_eq!(response.status(), StatusCode::OK);
-                attest_response(state, response).await;
+                attest_response(&state, response).await;
             }
         }
 
@@ -565,9 +849,12 @@ mod tests {
                 .body(Body::from(cr(SECP_384_R_1, vec![ext])))
                 .unwrap();
 
-            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            let response = app(certificates_state().clone())
+                .oneshot(request)
+                .await
+                .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
-            attest_response(certificates_state(), response).await;
+            attest_response(&certificates_state(), response).await;
         }
 
         #[tokio::test]
@@ -595,7 +882,7 @@ mod tests {
             let state = hostname_state();
             let response = app(state.clone()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
-            attest_response(state, response).await;
+            attest_response(&state, response).await;
         }
 
         #[tokio::test]

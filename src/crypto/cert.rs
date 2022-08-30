@@ -13,12 +13,19 @@ use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
 use x509::ext::Extension;
 use x509::{Certificate, TbsCertificate};
 
+#[cfg(target_os = "wasi")]
+use wasi_crypto_guest;
+
 pub trait TbsCertificateExt<'a> {
     /// Decodes all extensions with the specified oid.
     fn extensions<T: Decode<'a>>(&self, oid: ObjectIdentifier) -> Result<Vec<(bool, T)>>;
 
     /// Signs the `TbsCertificate` with the specified `PrivateKeyInfo`
     fn sign(self, pki: &PrivateKeyInfo<'_>) -> Result<Vec<u8>>;
+
+    #[cfg(target_os = "wasi")]
+    /// Signs the `TbsCertificate` with the specified `wasi_crypto_guest::signatures::SignatureKeyPair`
+    fn sign_kp(self, kp: &wasi_crypto_guest::signatures::SignatureKeyPair) -> Result<Vec<u8>>;
 
     /// Verifies a raw signature with extension handling.
     ///
@@ -72,6 +79,32 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
         let algo = self.signature;
         let body = self.to_vec()?;
         let sign = pki.sign(&body, algo)?;
+
+        let rval = Certificate {
+            tbs_certificate: self,
+            signature_algorithm: algo,
+            signature: BitStringRef::from_bytes(&sign)?,
+        };
+
+        Ok(rval.to_vec()?)
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn sign_kp(self, kp: &wasi_crypto_guest::signatures::SignatureKeyPair) -> Result<Vec<u8>> {
+        let algo = self.signature;
+        let body = self.to_vec()?;
+
+        // Messiness here because the trait `std::error::Error` is not implemented
+        // for `wasi_crypto_guest:error::Error`
+        let sign = match kp.sign(body) {
+            Ok(x) => x,
+            Err(e) => return Err(anyhow!("signature error {:?}", e)),
+        };
+
+        let sign = match sign.raw() {
+            Ok(x) => x,
+            Err(e) => return Err(anyhow!("signature to raw error {:?}", e)),
+        };
 
         let rval = Certificate {
             tbs_certificate: self,
