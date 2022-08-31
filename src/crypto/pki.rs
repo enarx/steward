@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use pkcs8::{ObjectIdentifier, PrivateKeyInfo, SubjectPublicKeyInfo};
 use zeroize::Zeroizing;
 
@@ -63,7 +63,7 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
                 EcdsaKeyPair::generate_pkcs8(&ALG, &rand)?
             }
 
-            _ => return Err(anyhow!("unsupported")),
+            _ => bail!("unsupported"),
         };
 
         Ok(doc.as_ref().to_vec().into())
@@ -79,7 +79,7 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
                     subject_public_key: pk,
                 })
             }
-            _ => return Err(anyhow!("unsupported")),
+            _ => bail!("unsupported"),
         }
     }
 
@@ -87,7 +87,7 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
         match self.algorithm.oids()? {
             (ECPK, Some(P256)) => Ok(ES256),
             (ECPK, Some(P384)) => Ok(ES384),
-            _ => return Err(anyhow!("unsupported")),
+            _ => bail!("unsupported"),
         }
     }
 
@@ -106,7 +106,7 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
                 Ok(kp.sign(&rng, body)?.as_ref().to_vec())
             }
 
-            _ => Err(anyhow!("unsupported")),
+            _ => bail!("unsupported"),
         }
     }
 }
