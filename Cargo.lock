@@ -188,6 +188,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "confargs"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ea7623826f70dd39cb095e90ce5690153d03091a5a4c2f38273e80af766587a"
+dependencies = [
+ "anyhow",
+ "toml",
+]
+
+[[package]]
 name = "const-default"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -946,6 +956,7 @@ dependencies = [
  "axum",
  "base64",
  "clap",
+ "confargs",
  "const-oid",
  "der",
  "flagset",
@@ -962,7 +973,6 @@ dependencies = [
  "spki",
  "testaso",
  "tokio",
- "toml",
  "tower",
  "tracing",
  "tracing-subscriber",
