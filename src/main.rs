@@ -14,7 +14,6 @@ use ext::{kvm::Kvm, sgx::Sgx, snp::Snp, ExtVerifier};
 use rustls_pemfile::Item;
 use x509::ext::pkix::name::GeneralName;
 
-use std::fs::read;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -44,6 +43,7 @@ use x509::time::{Time, Validity};
 use x509::{Certificate, PkiPath, TbsCertificate};
 
 use clap::Parser;
+use confargs::{prefix_char_filter, Toml};
 use zeroize::Zeroizing;
 
 const PKCS10: &str = "application/pkcs10";
@@ -174,38 +174,9 @@ impl State {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let args = std::env::args()
-        .try_fold(Vec::new(), |mut args, arg| {
-            if let Some(path) = arg.strip_prefix('@') {
-                let conf = read(path).context(format!("failed to read config file at `{path}`"))?;
-                match toml::from_slice(&conf)
-                    .context(format!("failed to parse config file at `{path}` as TOML"))?
-                {
-                    toml::Value::Table(kv) => kv.into_iter().try_for_each(|(k, v)| {
-                        match v {
-                            toml::Value::String(v) => args.push(format!("--{k}={v}")),
-                            toml::Value::Integer(v) => args.push(format!("--{k}={v}")),
-                            toml::Value::Float(v) => args.push(format!("--{k}={v}")),
-                            toml::Value::Boolean(v) => {
-                                if v {
-                                    args.push(format!("--{k}"))
-                                }
-                            }
-                            _ => bail!(
-                                "unsupported value type for field `{k}` in config file at `{path}`"
-                            ),
-                        }
-                        Ok(())
-                    })?,
-                    _ => bail!("invalid config file format in file at `{path}`"),
-                }
-            } else {
-                args.push(arg);
-            }
-            Ok(args)
-        })
-        .map(Args::parse_from)
-        .context("Failed to parse arguments")?;
+    let args = confargs::args::<Toml>(prefix_char_filter::<'@'>)
+        .context("Failed to parse config")
+        .map(Args::parse_from)?;
     let addr = SocketAddr::from((args.addr, args.port));
     let state = match (args.key, args.crt, args.host) {
         (None, None, Some(host)) => State::generate(args.san, &host)?,
