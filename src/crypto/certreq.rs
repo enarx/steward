@@ -4,9 +4,21 @@
 use anyhow::{anyhow, Result};
 use const_oid::ObjectIdentifier;
 use der::{asn1::BitStringRef, Encode};
+#[cfg(target_os = "wasi")]
+use p256::ecdsa::signature::Signature as _;
+#[cfg(target_os = "wasi")]
+use p256::ecdsa::Signature as p256_signature;
+#[cfg(target_os = "wasi")]
+use p384::ecdsa::signature::Signature as _;
+#[cfg(target_os = "wasi")]
+use p384::ecdsa::Signature as p384_signature;
 use pkcs8::PrivateKeyInfo;
 use spki::AlgorithmIdentifier;
 use x509::request::{CertReq, CertReqInfo};
+
+use const_oid::db::rfc5912::{
+    ECDSA_WITH_SHA_256, ECDSA_WITH_SHA_384, ID_EXTENSION_REQ, SECP_256_R_1, SECP_384_R_1,
+};
 
 use super::{PrivateKeyInfoExt, SubjectPublicKeyInfoExt};
 
@@ -75,6 +87,18 @@ impl<'a> CertReqInfoExt for CertReqInfo<'a> {
             Ok(x) => x,
             Err(e) => {
                 return Err(anyhow!("{:?}", e).into());
+            }
+        };
+
+        let sign = match *oid {
+            ECDSA_WITH_SHA_256 | SECP_256_R_1 => {
+                p256_signature::from_bytes(&sign).unwrap().to_vec()
+            }
+            ECDSA_WITH_SHA_384 | SECP_384_R_1 => {
+                p384_signature::from_bytes(&sign).unwrap().to_vec()
+            }
+            _ => {
+                return Err(anyhow!("Unexpected OID: {:?}", oid));
             }
         };
 

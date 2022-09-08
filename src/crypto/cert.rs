@@ -77,6 +77,10 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
 
     fn sign(self, pki: &PrivateKeyInfo<'_>) -> Result<Vec<u8>> {
         let algo = self.signature;
+        eprintln!(
+            "TbsCertificateExt.sign() signature_algorithm OID: {:?}",
+            algo.oid
+        );
         let body = self.to_vec()?;
         let sign = pki.sign(&body, algo)?;
 

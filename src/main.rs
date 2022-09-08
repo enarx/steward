@@ -31,12 +31,14 @@ use const_oid::db::rfc5280::{
     ID_CE_BASIC_CONSTRAINTS, ID_CE_EXT_KEY_USAGE, ID_CE_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME,
     ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH,
 };
-use const_oid::db::rfc5912::{ECDSA_WITH_SHA_256, ECDSA_WITH_SHA_384, ID_EXTENSION_REQ};
+use const_oid::db::rfc5912::{
+    ECDSA_WITH_SHA_256, ECDSA_WITH_SHA_384, ID_EXTENSION_REQ, SECP_256_R_1,
+};
 use der::asn1::{GeneralizedTime, Ia5StringRef, UIntRef};
 use der::{Decode, Encode};
 use pkcs8::PrivateKeyInfo;
 use rustls_pemfile::Item;
-use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
+use spki::{AlgorithmIdentifier, EncodePublicKey, SubjectPublicKeyInfo};
 use x509::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages, SubjectAltName};
 use x509::name::RdnSequence;
 use x509::request::{CertReq, ExtensionReq};
@@ -270,15 +272,15 @@ impl State {
             ]),
         };
 
-        println!(
+        eprintln!(
             "generate() tbs_certificate.signature oid: {:?}",
             pki.signs_with()?.oid
         );
-        println!(
+        eprintln!(
             "generate() tbs_certificate.subject_public_key_info oid: {:?}",
             pki.public_key()?.algorithm.oid
         );
-        println!("Key oid: {:?}", pki.algorithm.oid);
+        eprintln!("Key oid: {:?}", pki.algorithm.oid);
 
         // Self-sign the certificate.
         let crt = tbs.sign(&pki)?;
@@ -318,14 +320,9 @@ impl State {
             Err(e) => return Err(anyhow!("SignatureKeyPair::publickey() error {:?}", e)),
         };
 
-        let pub_key_raw = match pub_key_raw.raw() {
+        let pub_key_sec = match pub_key_raw.sec() {
             Ok(x) => x,
-            Err(e) => return Err(anyhow!("SignaturePublicKey::raw() error {:?}", e)),
-        };
-
-        let algo_ident = AlgorithmIdentifier {
-            oid: ECDSA_WITH_SHA_256,
-            parameters: None,
+            Err(e) => return Err(anyhow!("SignaturePublicKey::sec() error {:?}", e)),
         };
 
         // Create the certificate body.
@@ -333,15 +330,18 @@ impl State {
             version: x509::Version::V3,
             serial_number: UIntRef::new(&[0u8])?,
             signature: AlgorithmIdentifier {
-                oid: P256,
+                oid: ECDSA_WITH_SHA_256,
                 parameters: None,
             },
             issuer: rdns.clone(),
             validity,
             subject: rdns,
             subject_public_key_info: SubjectPublicKeyInfo {
-                algorithm: ES256,
-                subject_public_key: &pub_key_raw,
+                algorithm: AlgorithmIdentifier {
+                    oid: SECP_256_R_1,
+                    parameters: None,
+                },
+                subject_public_key: &pub_key_sec,
             },
             issuer_unique_id: None,
             subject_unique_id: None,
@@ -360,6 +360,18 @@ impl State {
         };
 
         let crt = tbs.sign_kp(&kp)?;
+
+        match Certificate::from_der(&crt) {
+            Ok(_) => {}
+            Err(e) => {
+                return Err(anyhow!(
+                    "Wasi generate(): error validating certificate: {:?}",
+                    e
+                ))
+            }
+        }
+
+        eprintln!("Wasi generate() certificate is valid!");
 
         Ok(Self {
             crt,
@@ -451,8 +463,9 @@ async fn attest(
 
     // Decode and verify the certification request.
     let cr = CertReq::from_der(body.as_ref()).or(Err(StatusCode::BAD_REQUEST))?;
+    println!("attest() decoded CSR");
     let cri = cr.verify().or(Err(StatusCode::BAD_REQUEST))?;
-    println!("attest() decoded and verified CSR");
+    println!("attest() verified CSR");
 
     // Validate requested extensions.
     let mut attested = false;
@@ -616,6 +629,7 @@ mod tests {
         use axum::response::Response;
         use http::{header::CONTENT_TYPE, Request};
         use hyper::Body;
+        use ring::hmac::sign;
         use tower::ServiceExt; // for `app.oneshot()`
 
         //#[cfg(not(target_os = "wasi"))]
@@ -666,7 +680,7 @@ mod tests {
             )
             .unwrap();
             let spki = kp.publickey().unwrap();
-            let spki = spki.raw().unwrap();
+            let pub_key_sec = spki.sec().unwrap();
 
             let req = ExtensionReq::from(exts).to_vec().unwrap();
             let any = AnyRef::from_der(&req).unwrap();
@@ -675,9 +689,9 @@ mod tests {
                 values: vec![any].try_into().unwrap(),
             };
 
-            let (cert_oid, sign_oid) = match curve {
-                SECP_256_R_1 => (ECPK, ECDSA_WITH_SHA_256),
-                SECP_384_R_1 => (ECPK, ECDSA_WITH_SHA_384),
+            let sign_oid = match curve {
+                SECP_256_R_1 => ECDSA_WITH_SHA_256,
+                SECP_384_R_1 => ECDSA_WITH_SHA_384,
                 x => {
                     eprintln!("Unknown OID {:?}", x);
                     unreachable!()
@@ -691,10 +705,10 @@ mod tests {
                 subject: RdnSequence::default(),
                 public_key: SubjectPublicKeyInfo {
                     algorithm: AlgorithmIdentifier {
-                        oid: cert_oid,
+                        oid: curve,
                         parameters: None,
                     },
-                    subject_public_key: &spki,
+                    subject_public_key: &pub_key_sec,
                 },
             };
 
