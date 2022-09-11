@@ -27,6 +27,14 @@ use axum::routing::{get, post};
 use axum::Router;
 use hyper::StatusCode;
 use mime::Mime;
+use tower_http::{
+    trace::{
+        DefaultMakeSpan, DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest,
+        DefaultOnResponse, TraceLayer,
+    },
+    LatencyUnit,
+};
+use tracing::Level;
 
 use const_oid::db::rfc5280::{
     ID_CE_BASIC_CONSTRAINTS, ID_CE_EXT_KEY_USAGE, ID_CE_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME,
@@ -172,7 +180,14 @@ impl State {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    if std::env::var("RUST_LOG_JSON").is_ok() {
+        tracing_subscriber::fmt::fmt()
+            .json()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
+    } else {
+        tracing_subscriber::fmt::init();
+    }
 
     let args = confargs::args::<Toml>(prefix_char_filter::<'@'>)
         .context("Failed to parse config")
@@ -200,6 +215,31 @@ fn app(state: State) -> Router {
         .route("/", post(attest))
         .route("/", get(health))
         .layer(Extension(Arc::new(state)))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(
+                    DefaultMakeSpan::new()
+                        .level(Level::INFO)
+                        .include_headers(true),
+                )
+                .on_request(DefaultOnRequest::new().level(Level::INFO))
+                .on_response(
+                    DefaultOnResponse::new()
+                        .level(Level::INFO)
+                        .latency_unit(LatencyUnit::Micros),
+                )
+                .on_body_chunk(DefaultOnBodyChunk::new())
+                .on_eos(
+                    DefaultOnEos::new()
+                        .level(Level::INFO)
+                        .latency_unit(LatencyUnit::Micros),
+                )
+                .on_failure(
+                    DefaultOnFailure::new()
+                        .level(Level::INFO)
+                        .latency_unit(LatencyUnit::Micros),
+                ),
+        )
 }
 
 async fn health() -> StatusCode {
