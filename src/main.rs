@@ -464,7 +464,10 @@ async fn attest(
     // Decode and verify the certification request.
     let cr = CertReq::from_der(body.as_ref()).or(Err(StatusCode::BAD_REQUEST))?;
     println!("attest() decoded CSR");
+    #[cfg(not(target_os = "wasi"))]
     let cri = cr.verify().or(Err(StatusCode::BAD_REQUEST))?;
+    #[cfg(target_os = "wasi")]
+    let cri = cr.verify_kp(&state.kp).or(Err(StatusCode::BAD_REQUEST))?;
     println!("attest() verified CSR");
 
     // Validate requested extensions.
@@ -705,10 +708,10 @@ mod tests {
                 subject: RdnSequence::default(),
                 public_key: SubjectPublicKeyInfo {
                     algorithm: AlgorithmIdentifier {
-                        oid: curve,
+                        oid: sign_oid,
                         parameters: None,
                     },
-                    subject_public_key: &pub_key_sec,
+                    subject_public_key: &pub_key_sec.to_vec().unwrap(),
                 },
             };
 
