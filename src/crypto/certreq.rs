@@ -51,6 +51,7 @@ impl<'a> CertReqExt<'a> for CertReq<'a> {
         Ok(self.info)
     }
 
+    #[cfg(target_os = "wasi")]
     fn verify_kp(self, kp: &SignatureKeyPair) -> Result<CertReqInfo<'a>> {
         if self.info.version != x509::request::Version::V1 {
             return Err(anyhow!("invalid version"));
@@ -88,11 +89,23 @@ impl<'a> CertReqExt<'a> for CertReq<'a> {
 
         eprintln!("CSR got wasi-crypto sig object");
 
-        let pubkey = kp.publickey().unwrap();
+        let wasi_pubkey = match wasi_crypto_guest::signatures::SignaturePublicKey::from_raw(
+            algo_str,
+            self.info.public_key.subject_public_key,
+        ) {
+            Ok(x) => x,
+            Err(e) => {
+                eprintln!("CSR failed to get wasi-crypto public key object {:?}", e);
+                return Err(anyhow!(
+                    "Failed to get wasi-crypto public key object from bytes {:?}",
+                    e
+                ));
+            }
+        };
 
         eprintln!("CSR got wasi-crypto public key object");
 
-        match pubkey.signature_verify(body, &signature_obj) {
+        match wasi_pubkey.signature_verify(body, &signature_obj) {
             Ok(_) => {
                 eprintln!("CSR validated!");
             }

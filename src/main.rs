@@ -683,7 +683,7 @@ mod tests {
             )
             .unwrap();
             let spki = kp.publickey().unwrap();
-            let pub_key_sec = spki.sec().unwrap();
+            let pub_key_raw = spki.raw().unwrap();
 
             let req = ExtensionReq::from(exts).to_vec().unwrap();
             let any = AnyRef::from_der(&req).unwrap();
@@ -711,7 +711,7 @@ mod tests {
                         oid: sign_oid,
                         parameters: None,
                     },
-                    subject_public_key: &pub_key_sec.to_vec().unwrap(),
+                    subject_public_key: &pub_key_raw,
                 },
             };
 
@@ -743,7 +743,7 @@ mod tests {
         }
 
         #[tokio::test]
-        //#[cfg(not(target_os = "wasi"))]
+        #[cfg(not(target_os = "wasi"))]
         async fn kvm_certs() {
             let ext = Extension {
                 extn_id: Kvm::OID,
@@ -789,7 +789,7 @@ mod tests {
         }
 
         #[tokio::test]
-        //#[cfg(not(target_os = "wasi"))]
+        #[cfg(not(target_os = "wasi"))]
         async fn sgx_certs() {
             for quote in [
                 include_bytes!("ext/sgx/quote.unknown").as_slice(),
