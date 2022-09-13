@@ -320,9 +320,9 @@ impl State {
             Err(e) => return Err(anyhow!("SignatureKeyPair::publickey() error {:?}", e)),
         };
 
-        let pub_key_sec = match pub_key_raw.sec() {
+        let pub_key_raw = match pub_key_raw.raw() {
             Ok(x) => x,
-            Err(e) => return Err(anyhow!("SignaturePublicKey::sec() error {:?}", e)),
+            Err(e) => return Err(anyhow!("SignaturePublicKey::raw() error {:?}", e)),
         };
 
         // Create the certificate body.
@@ -338,10 +338,10 @@ impl State {
             subject: rdns,
             subject_public_key_info: SubjectPublicKeyInfo {
                 algorithm: AlgorithmIdentifier {
-                    oid: SECP_256_R_1,
+                    oid: ECDSA_WITH_SHA_256,
                     parameters: None,
                 },
-                subject_public_key: &pub_key_sec,
+                subject_public_key: &pub_key_raw,
             },
             issuer_unique_id: None,
             subject_unique_id: None,
@@ -725,7 +725,12 @@ mod tests {
             let issr = Certificate::from_der(&state.crt).unwrap();
             assert_eq!(2, path.len());
             assert_eq!(issr, path[0]);
-            issr.tbs_certificate.verify_crt(&path[1]).unwrap();
+            match issr.tbs_certificate.verify_crt(&path[1]) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("attest_response() validation error: {:?}", e);
+                }
+            }
         }
 
         #[test]
@@ -785,6 +790,7 @@ mod tests {
             let response = app(state.clone()).oneshot(request).await.unwrap();
             println!("KVM test response: {:}", response.status());
             assert_eq!(response.status(), StatusCode::OK);
+            eprintln!("kvm hostname attest successful, validating returned cert...");
             attest_response(&state, response).await;
         }
 

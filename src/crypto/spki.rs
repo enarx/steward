@@ -13,6 +13,9 @@ use const_oid::db::rfc5912::{
     SECP_256_R_1 as P256, SECP_384_R_1 as P384,
 };
 
+use p256::ecdsa::signature::Signature as _;
+use p384::ecdsa::signature::Signature as _;
+
 use anyhow::{anyhow, Result};
 
 #[cfg(not(target_os = "wasi"))]
@@ -21,7 +24,7 @@ use ring::signature::VerificationAlgorithm as VerAlg;
 use ring::signature::*;
 
 #[cfg(target_os = "wasi")]
-use wasi_crypto_guest::signatures::{Signature, SignatureKeyPair};
+use wasi_crypto_guest::signatures::{Signature, SignaturePublicKey};
 
 const ES256: (ObjectIdentifier, Option<AnyRef<'static>>) = (ECDSA_WITH_SHA_256, None);
 const ES384: (ObjectIdentifier, Option<AnyRef<'static>>) = (ECDSA_WITH_SHA_384, None);
@@ -100,20 +103,35 @@ impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
 
         #[cfg(target_os = "wasi")]
         {
-            let (pk, sig) = match self.algorithm.oids()? {
-                (ECPK, Some(P256)) => (
-                    SignatureKeyPair::from_pkcs8("ECDSA_P256_SHA256", &self.subject_public_key)
-                        .unwrap()
-                        .publickey()
+            eprintln!(
+                "SPKI verify self.algorithm.oid = {:?}",
+                self.algorithm.oids()?.1
+            );
+            eprintln!("SPKI verify received oid = : {:?}", algo.oid);
+            println!("Signature:");
+            for v in sign {
+                print!("{:x}", v);
+            }
+            print!("\n");
+
+            let (pk, sig) = match (self.algorithm.oids()?, (algo.oid, algo.parameters)) {
+                ((ECPK, Some(P256)), ES256) => (
+                    SignaturePublicKey::from_raw("ECDSA_P256_SHA256", &self.subject_public_key)
                         .unwrap(),
-                    Signature::from_raw("ECDSA_P256_SHA256", sign).unwrap(),
+                    Signature::from_raw(
+                        "ECDSA_P256_SHA256",
+                        p256::ecdsa::Signature::from_der(sign).unwrap().as_bytes(),
+                    )
+                    .unwrap(),
                 ),
-                (ECPK, Some(P384)) => (
-                    SignatureKeyPair::from_pkcs8("ECDSA_P384_SHA384", &self.subject_public_key)
-                        .unwrap()
-                        .publickey()
+                ((ECPK, Some(P384)), ES384) => (
+                    SignaturePublicKey::from_raw("ECDSA_P384_SHA384", &self.subject_public_key)
                         .unwrap(),
-                    Signature::from_raw("ECDSA_P384_SHA384", sign).unwrap(),
+                    Signature::from_raw(
+                        "ECDSA_P384_SHA384",
+                        p384::ecdsa::Signature::from_der(sign).unwrap().as_bytes(),
+                    )
+                    .unwrap(),
                 ),
                 _ => return Err(anyhow!("unsupported")),
             };
