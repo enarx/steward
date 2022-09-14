@@ -20,10 +20,18 @@ use body::Body;
 use traits::{FromBytes, ParseBytes, Steal};
 
 use der::Encode;
+use elliptic_curve::sec1::ToEncodedPoint;
+#[cfg(not(target_os = "wasi"))]
 use ring::signature::UnparsedPublicKey;
 use sgx::ReportBody;
 use sha2::{digest::DynDigest, Sha256};
 use x509::TbsCertificate;
+
+#[cfg(target_os = "wasi")]
+use p256::ecdsa::signature::Signature as _;
+
+#[cfg(target_os = "wasi")]
+use wasi_crypto_guest::signatures::{Signature, SignaturePublicKey};
 
 pub struct Quote<'a> {
     body: &'a Body,
@@ -80,9 +88,41 @@ impl<'a> Quote<'a> {
         }
 
         // Verify the signature on the enclave report.
-        let alg = &ring::signature::ECDSA_P256_SHA256_ASN1;
-        let upk = UnparsedPublicKey::new(alg, self.sign.key.sec1());
-        upk.verify(self.body.as_ref(), &self.sign.sig.to_vec()?)?;
+        #[cfg(not(target_os = "wasi"))]
+        {
+            let alg = &ring::signature::ECDSA_P256_SHA256_ASN1;
+            let upk = UnparsedPublicKey::new(alg, self.sign.key.sec1());
+            upk.verify(self.body.as_ref(), &self.sign.sig.to_vec()?)?;
+        }
+        #[cfg(target_os = "wasi")]
+        {
+            //let pub_key = p256::PublicKey::from_sec1_bytes(self.sign.key.sec1())?;
+            eprintln!("SGX key size {:?}", self.sign.key.as_ref().len());
+            let pub_key =
+                match SignaturePublicKey::from_sec("ECDSA_P256_SHA256", &self.sign.key.sec1()) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        eprintln!("SGX error getting public key {:?}", e);
+                        return Err(anyhow!("SGX error getting public key {:?}", e));
+                    }
+                };
+            let sig = p256::ecdsa::Signature::from_der(&self.sign.sig.to_vec().unwrap()).unwrap();
+            let sig = match Signature::from_raw("ECDSA_P256_SHA256", &sig.to_vec()) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("SGX error getting signature {:?}", e);
+                    return Err(anyhow!("SGX error getting signature {:?}", e));
+                }
+            };
+            match pub_key.signature_verify(self.body.as_ref(), &sig) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("SGX signature validation failed {:?}", e);
+                    return Err(anyhow!("SGX signature validation failed {:?}", e));
+                }
+            }
+            eprintln!("SGX: Wasi-Crypto validation completed successfully.");
+        }
 
         // Verify the PCE security version.
         if self.body.pce_svn() < Body::PCE_SVN {
