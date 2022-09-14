@@ -3,8 +3,6 @@
 
 use const_oid::ObjectIdentifier;
 use der::{asn1::AnyRef, Sequence};
-use ring::signature::VerificationAlgorithm as VerAlg;
-use ring::signature::*;
 use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
 
 use const_oid::db::rfc5912::{
@@ -46,9 +44,9 @@ pub trait SubjectPublicKeyInfoExt {
 
 impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
     fn verify(&self, body: &[u8], algo: AlgorithmIdentifier<'_>, sign: &[u8]) -> Result<()> {
-        let alg: &'static dyn VerAlg = match (self.algorithm.oids()?, (algo.oid, algo.parameters)) {
-            ((ECPK, Some(P256)), ES256) => &ECDSA_P256_SHA256_ASN1,
-            ((ECPK, Some(P384)), ES384) => &ECDSA_P384_SHA384_ASN1,
+        let alg = match (self.algorithm.oids()?, (algo.oid, algo.parameters)) {
+            ((ECPK, Some(P256)), ES256) => ECDSA_WITH_SHA_256,
+            ((ECPK, Some(P384)), ES384) => ECDSA_WITH_SHA_384,
             ((RSA, None), (ID_RSASSA_PSS, Some(p))) => {
                 // Decompose the RSA PSS parameters.
                 let RsaSsaPssParams {
@@ -83,6 +81,7 @@ impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
             _ => return Err(anyhow!("unsupported")),
         };
 
+        let pub_key =
         let upk = UnparsedPublicKey::new(alg, self.subject_public_key);
         Ok(upk.verify(body, sign)?)
     }
