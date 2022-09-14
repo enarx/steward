@@ -20,9 +20,9 @@ zeroize = { version = "^1.5.2", features = ["alloc"] }
 flagset = "0.4.3"
 sgx = { version = "0.5.0" }
 
-tracing-subscriber = { version="^0.3.8", features = ["env-filter", "json"] }
+tracing-subscriber = { version="^0.3.15", features = ["env-filter", "json"] }
 tower-http = { version = "^0.3.0", features = ["trace"] }
-axum = { version = "^0.5.1", features = ["headers"] }
+axum = { version = "^0.5.16", features = ["headers"] }
 clap = { version = "^3.0.14", features = ["derive", "env"] }
 hyper = { version = "^0.14.17", features = ["full"] }
 tokio = { version = "^1.15.0", features = ["full"] }
