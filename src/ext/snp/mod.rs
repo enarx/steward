@@ -9,8 +9,8 @@ use anyhow::{anyhow, Context, Result};
 
 use const_oid::db::rfc5912::ECDSA_WITH_SHA_384;
 use const_oid::ObjectIdentifier;
-use der::asn1::UIntBytes;
-use der::{Decodable, Encodable, Sequence};
+use der::asn1::UIntRef;
+use der::{Decode, Encode, Sequence};
 use flagset::{flags, FlagSet};
 use pkcs8::AlgorithmIdentifier;
 use sha2::Digest;
@@ -163,16 +163,16 @@ impl Es384 {
         /// }
         #[derive(Clone, Debug, Sequence)]
         struct EcdsaSig<'a> {
-            r: UIntBytes<'a>,
-            s: UIntBytes<'a>,
+            r: UIntRef<'a>,
+            s: UIntRef<'a>,
         }
 
         self.r.reverse();
         self.s.reverse();
 
         let es = EcdsaSig {
-            r: UIntBytes::new(&self.r)?,
-            s: UIntBytes::new(&self.s)?,
+            r: UIntRef::new(&self.r)?,
+            s: UIntRef::new(&self.s)?,
         };
 
         Ok(es.to_vec()?)
@@ -221,8 +221,8 @@ impl Snp {
         for root in Self::ROOTS {
             let path = PkiPath::from_der(root)?;
 
-            let mut signer = Some(&path.0[0].tbs_certificate);
-            for cert in path.0.iter().chain([vcek].into_iter()) {
+            let mut signer = Some(&path[0].tbs_certificate);
+            for cert in path.iter().chain([vcek].into_iter()) {
                 signer = signer.and_then(|s| s.verify_crt(cert).ok());
             }
 

@@ -5,7 +5,7 @@ use anyhow::{anyhow, bail, Result};
 use pkcs8::{ObjectIdentifier, PrivateKeyInfo, SubjectPublicKeyInfo};
 use zeroize::Zeroizing;
 
-use der::{Decodable, Encodable};
+use der::{Decode, Encode};
 use sec1::EcPrivateKey;
 use spki::AlgorithmIdentifier;
 

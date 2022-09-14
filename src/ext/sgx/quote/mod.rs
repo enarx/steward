@@ -19,7 +19,7 @@ use crate::crypto::TbsCertificateExt;
 use body::Body;
 use traits::{FromBytes, ParseBytes, Steal};
 
-use der::Encodable;
+use der::Encode;
 use ring::signature::UnparsedPublicKey;
 use sgx::ReportBody;
 use sha2::{digest::DynDigest, Sha256};
