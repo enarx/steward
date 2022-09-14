@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use const_oid::ObjectIdentifier;
-use der::{Any, Decodable, Sequence};
+use der::{asn1::AnyRef, Sequence};
 use ring::signature::VerificationAlgorithm as VerAlg;
 use ring::signature::*;
 use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
@@ -15,8 +15,8 @@ use const_oid::db::rfc5912::{
 
 use anyhow::{anyhow, Result};
 
-const ES256: (ObjectIdentifier, Option<Any<'static>>) = (ECDSA_WITH_SHA_256, None);
-const ES384: (ObjectIdentifier, Option<Any<'static>>) = (ECDSA_WITH_SHA_384, None);
+const ES256: (ObjectIdentifier, Option<AnyRef<'static>>) = (ECDSA_WITH_SHA_256, None);
+const ES384: (ObjectIdentifier, Option<AnyRef<'static>>) = (ECDSA_WITH_SHA_384, None);
 
 #[derive(Clone, Debug, PartialEq, Eq, Sequence)]
 pub struct RsaSsaPssParams<'a> {

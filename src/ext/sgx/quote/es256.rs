@@ -5,7 +5,7 @@ use super::{qe::QuotingEnclave, FromBytes, ParseBytes};
 
 use std::array::TryFromSliceError;
 
-use der::{asn1::UIntBytes, Sequence};
+use der::{asn1::UIntRef, Sequence};
 
 #[derive(Clone, Debug)]
 #[repr(C)]
@@ -44,8 +44,8 @@ impl PublicKey {
 /// }
 #[derive(Clone, Debug, Sequence)]
 pub struct Signature<'a> {
-    r: UIntBytes<'a>,
-    s: UIntBytes<'a>,
+    r: UIntRef<'a>,
+    s: UIntRef<'a>,
 }
 
 impl<'a> FromBytes<'a> for Signature<'a> {
@@ -55,8 +55,8 @@ impl<'a> FromBytes<'a> for Signature<'a> {
         let (r, bytes): (&[u8; 32], _) = bytes.parse()?;
         let (s, bytes): (&[u8; 32], _) = bytes.parse()?;
         let sv = Self {
-            r: UIntBytes::new(r).unwrap(),
-            s: UIntBytes::new(s).unwrap(),
+            r: UIntRef::new(r).unwrap(),
+            s: UIntRef::new(s).unwrap(),
         };
 
         Ok((sv, bytes))

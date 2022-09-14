@@ -7,7 +7,8 @@ use std::time::SystemTime;
 
 use anyhow::{anyhow, Result};
 use const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE};
-use der::{asn1::BitString, Decodable, Encodable};
+use der::asn1::BitStringRef;
+use der::{Decode, Encode};
 use pkcs8::{AlgorithmIdentifier, ObjectIdentifier, PrivateKeyInfo};
 use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
 use x509::ext::Extension;
@@ -15,7 +16,7 @@ use x509::{Certificate, TbsCertificate};
 
 pub trait TbsCertificateExt<'a> {
     /// Decodes all extensions with the specified oid.
-    fn extensions<T: Decodable<'a>>(&self, oid: ObjectIdentifier) -> Result<Vec<(bool, T)>>;
+    fn extensions<T: Decode<'a>>(&self, oid: ObjectIdentifier) -> Result<Vec<(bool, T)>>;
 
     /// Signs the `TbsCertificate` with the specified `PrivateKeyInfo`
     fn sign(self, pki: &PrivateKeyInfo<'_>) -> Result<Vec<u8>>;
@@ -58,7 +59,7 @@ pub trait TbsCertificateExt<'a> {
 }
 
 impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
-    fn extensions<T: Decodable<'a>>(&self, oid: ObjectIdentifier) -> Result<Vec<(bool, T)>> {
+    fn extensions<T: Decode<'a>>(&self, oid: ObjectIdentifier) -> Result<Vec<(bool, T)>> {
         self.extensions
             .as_deref()
             .unwrap_or(&[])
@@ -76,7 +77,7 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
         let rval = Certificate {
             tbs_certificate: self,
             signature_algorithm: algo,
-            signature: BitString::from_bytes(&sign)?,
+            signature: BitStringRef::from_bytes(&sign)?,
         };
 
         Ok(rval.to_vec()?)

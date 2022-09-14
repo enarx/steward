@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use anyhow::{anyhow, Result};
-use der::{asn1::BitString, Encodable};
+use der::{asn1::BitStringRef, Encode};
 use pkcs8::PrivateKeyInfo;
 use x509::request::{CertReq, CertReqInfo};
 
@@ -47,7 +47,7 @@ impl<'a> CertReqInfoExt for CertReqInfo<'a> {
         let rval = CertReq {
             info: self,
             algorithm: algo,
-            signature: BitString::from_bytes(&sign)?,
+            signature: BitStringRef::from_bytes(&sign)?,
         };
 
         Ok(rval.to_vec()?)
