@@ -29,8 +29,8 @@ use hyper::StatusCode;
 use mime::Mime;
 use tower_http::{
     trace::{
-        DefaultMakeSpan, DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest,
-        DefaultOnResponse, TraceLayer,
+        DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse,
+        TraceLayer,
     },
     LatencyUnit,
 };
@@ -210,6 +210,24 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Default)]
+struct SpanMaker;
+
+impl<B> tower_http::trace::MakeSpan<B> for SpanMaker {
+    fn make_span(&mut self, request: &axum::http::request::Request<B>) -> tracing::span::Span {
+        let reqid = uuid::Uuid::new_v4();
+        tracing::span!(
+            Level::INFO,
+            "request",
+            method = %request.method(),
+            uri = %request.uri(),
+            version = ?request.version(),
+            headers = ?request.headers(),
+            request_id = %reqid,
+        )
+    }
+}
+
 fn app(state: State) -> Router {
     Router::new()
         .route("/", post(attest))
@@ -217,11 +235,7 @@ fn app(state: State) -> Router {
         .layer(Extension(Arc::new(state)))
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(
-                    DefaultMakeSpan::new()
-                        .level(Level::INFO)
-                        .include_headers(true),
-                )
+                .make_span_with(SpanMaker::default())
                 .on_request(DefaultOnRequest::new().level(Level::INFO))
                 .on_response(
                     DefaultOnResponse::new()
