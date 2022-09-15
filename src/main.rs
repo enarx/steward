@@ -10,7 +10,6 @@ mod crypto;
 mod ext;
 
 use crypto::*;
-use ext::{kvm::Kvm, sgx::Sgx, snp::Snp, ExtVerifier};
 use rustls_pemfile::Item;
 use x509::ext::pkix::name::GeneralName;
 
@@ -21,12 +20,10 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
 use axum::body::Bytes;
-use axum::extract::{Extension, TypedHeader};
-use axum::headers::ContentType;
+use axum::extract::Extension;
 use axum::routing::{get, post};
 use axum::Router;
 use hyper::StatusCode;
-use mime::Mime;
 use tower_http::{
     trace::{
         DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse,
@@ -40,21 +37,18 @@ use const_oid::db::rfc5280::{
     ID_CE_BASIC_CONSTRAINTS, ID_CE_EXT_KEY_USAGE, ID_CE_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME,
     ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH,
 };
-use const_oid::db::rfc5912::ID_EXTENSION_REQ;
 use der::asn1::{GeneralizedTime, Ia5StringRef, UIntRef};
-use der::{Decode, Encode};
+use der::{Decode, Encode, Sequence};
 use pkcs8::PrivateKeyInfo;
 use x509::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages, SubjectAltName};
 use x509::name::RdnSequence;
-use x509::request::{CertReq, ExtensionReq};
+use x509::request::CertReq;
 use x509::time::{Time, Validity};
 use x509::{Certificate, TbsCertificate};
 
 use clap::Parser;
 use confargs::{prefix_char_filter, Toml};
 use zeroize::Zeroizing;
-
-const PKCS10: &str = "application/pkcs10";
 
 /// Attestation server for use with Enarx.
 ///
@@ -91,6 +85,20 @@ struct State {
     key: Zeroizing<Vec<u8>>,
     crt: Vec<u8>,
     san: Option<String>,
+}
+
+/// ASN.1
+/// Output ::= SEQUENCE {
+///     chain SEQUENCE OF Certificate,
+///     issued SEQUENCE OF Certificate,
+/// }
+#[derive(Clone, Debug, Default, Sequence)]
+struct Output<'a> {
+    /// The signing certificate chain back to the root.
+    pub chain: Vec<Certificate<'a>>,
+
+    /// All issued certificates.
+    pub issued: Vec<Certificate<'a>>,
 }
 
 impl State {
@@ -260,8 +268,11 @@ async fn health() -> StatusCode {
     StatusCode::OK
 }
 
+/// Receives:
+/// ASN.1 SEQUENCE OF CertRequest.
+/// Returns:
+/// ASN.1 SEQUENCE OF Output.
 async fn attest(
-    TypedHeader(ct): TypedHeader<ContentType>,
     body: Bytes,
     Extension(state): Extension<Arc<State>>,
 ) -> Result<Vec<u8>, StatusCode> {
@@ -270,60 +281,6 @@ async fn attest(
     // Decode the signing certificate and key.
     let issuer = Certificate::from_der(&state.crt).or(Err(ISE))?;
     let isskey = PrivateKeyInfo::from_der(&state.key).or(Err(ISE))?;
-
-    // Ensure the correct mime type.
-    let mime: Mime = PKCS10.parse().unwrap();
-    if ct != ContentType::from(mime) {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-
-    // Decode and verify the certification request.
-    let cr = CertReq::from_der(body.as_ref()).or(Err(StatusCode::BAD_REQUEST))?;
-    let cri = cr.verify().or(Err(StatusCode::BAD_REQUEST))?;
-
-    // Validate requested extensions.
-    let mut attested = false;
-    let mut extensions = Vec::new();
-    for attr in cri.attributes.iter() {
-        if attr.oid != ID_EXTENSION_REQ {
-            return Err(StatusCode::BAD_REQUEST);
-        }
-
-        for any in attr.values.iter() {
-            let ereq: ExtensionReq<'_> = any.decode_into().or(Err(StatusCode::BAD_REQUEST))?;
-            for ext in Vec::from(ereq) {
-                // If the issuer is self-signed, we are in debug mode.
-                let iss = &issuer.tbs_certificate;
-                let dbg = iss.issuer_unique_id == iss.subject_unique_id;
-                let dbg = dbg && iss.issuer == iss.subject;
-
-                // Validate the extension.
-                let (copy, att) = match ext.extn_id {
-                    Kvm::OID => (Kvm::default().verify(&cri, &ext, dbg), Kvm::ATT),
-                    Sgx::OID => (Sgx::default().verify(&cri, &ext, dbg), Sgx::ATT),
-                    Snp::OID => (Snp::default().verify(&cri, &ext, dbg), Snp::ATT),
-                    _ => return Err(StatusCode::BAD_REQUEST), // unsupported extension
-                };
-
-                // Save results.
-                attested |= att;
-                if copy.or(Err(StatusCode::BAD_REQUEST))? {
-                    extensions.push(ext);
-                }
-            }
-        }
-    }
-    if !attested {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-
-    // Get the current time and the expiration of the cert.
-    let now = SystemTime::now();
-    let end = now + Duration::from_secs(60 * 60 * 24 * 28);
-    let validity = Validity {
-        not_before: Time::try_from(now).or(Err(ISE))?,
-        not_after: Time::try_from(end).or(Err(ISE))?,
-    };
 
     // Create the basic subject alt name.
     let mut sans = vec![GeneralName::DnsName(
@@ -337,62 +294,92 @@ async fn attest(
 
     // Encode the subject alt name.
     let sans: Vec<u8> = SubjectAltName(sans).to_vec().or(Err(ISE))?;
-    extensions.push(x509::ext::Extension {
-        extn_id: ID_CE_SUBJECT_ALT_NAME,
-        critical: false,
-        extn_value: &sans,
-    });
 
-    // Add extended key usage.
-    let eku = ExtendedKeyUsage(vec![ID_KP_SERVER_AUTH, ID_KP_CLIENT_AUTH])
-        .to_vec()
-        .or(Err(ISE))?;
-    extensions.push(x509::ext::Extension {
-        extn_id: ID_CE_EXT_KEY_USAGE,
-        critical: false,
-        extn_value: &eku,
-    });
-
-    // Generate the instance id.
-    let uuid = uuid::Uuid::new_v4();
-
-    // Create the new certificate.
-    let tbs = TbsCertificate {
-        version: x509::Version::V3,
-        serial_number: UIntRef::new(uuid.as_bytes()).or(Err(ISE))?,
-        signature: isskey.signs_with().or(Err(ISE))?,
-        issuer: issuer.tbs_certificate.subject.clone(),
-        validity,
-        subject: RdnSequence(Vec::new()),
-        subject_public_key_info: cri.public_key,
-        issuer_unique_id: issuer.tbs_certificate.subject_unique_id,
-        subject_unique_id: None,
-        extensions: Some(extensions),
+    // Get the current time and the expiration of the cert.
+    let now = SystemTime::now();
+    let end = now + Duration::from_secs(60 * 60 * 24 * 28);
+    let validity = Validity {
+        not_before: Time::try_from(now).or(Err(ISE))?,
+        not_after: Time::try_from(end).or(Err(ISE))?,
     };
 
-    // Sign the certificate.
-    let crt = tbs.sign(&isskey).or(Err(ISE))?;
-    let crt = Certificate::from_der(&crt).or(Err(ISE))?;
+    let crs = Vec::<CertReq<'_>>::from_der(body.as_ref()).or(Err(StatusCode::BAD_REQUEST))?;
 
-    // Create and return the PkiPath.
-    vec![issuer, crt].to_vec().or(Err(ISE))
+    // Decode and verify the certification request.
+    crs.into_iter()
+        .map(|cr| {
+            let issuer = issuer.clone();
+            let cri = cr.verify().or(Err(StatusCode::BAD_REQUEST))?;
+
+            let mut extensions = cri.attest(&issuer).or(Err(StatusCode::UNAUTHORIZED))?;
+
+            // Add Subject Alternative Name
+            extensions.push(x509::ext::Extension {
+                extn_id: ID_CE_SUBJECT_ALT_NAME,
+                critical: false,
+                extn_value: &sans,
+            });
+
+            // Add extended key usage.
+            let eku = ExtendedKeyUsage(vec![ID_KP_SERVER_AUTH, ID_KP_CLIENT_AUTH])
+                .to_vec()
+                .or(Err(ISE))?;
+            extensions.push(x509::ext::Extension {
+                extn_id: ID_CE_EXT_KEY_USAGE,
+                critical: false,
+                extn_value: &eku,
+            });
+
+            // Generate the instance id.
+            let uuid = uuid::Uuid::new_v4();
+
+            // Create the new certificate.
+            let tbs = TbsCertificate {
+                version: x509::Version::V3,
+                serial_number: UIntRef::new(uuid.as_bytes()).or(Err(ISE))?,
+                signature: isskey.signs_with().or(Err(ISE))?,
+                issuer: issuer.clone().tbs_certificate.subject.clone(),
+                validity,
+                subject: RdnSequence(Vec::new()),
+                subject_public_key_info: cri.public_key,
+                issuer_unique_id: issuer.clone().tbs_certificate.subject_unique_id,
+                subject_unique_id: None,
+                extensions: Some(extensions),
+            };
+
+            // Sign the certificate.
+            tbs.sign(&isskey).or(Err(ISE))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .and_then(|crts| {
+            let issued = crts
+                .iter()
+                .map(|c| Certificate::from_der(c).unwrap())
+                .collect();
+            Output {
+                chain: vec![issuer.clone()],
+                issued,
+            }
+            .to_vec()
+            .or(Err(ISE))
+        })
 }
 
 #[cfg(test)]
 mod tests {
     mod attest {
+        use crate::ext::{kvm::Kvm, sgx::Sgx, snp::Snp, ExtVerifier};
         use crate::*;
-
-        use const_oid::db::rfc5912::{SECP_256_R_1, SECP_384_R_1};
+        use const_oid::db::rfc5912::{ID_EXTENSION_REQ, SECP_256_R_1, SECP_384_R_1};
         use const_oid::ObjectIdentifier;
         use der::{AnyRef, Encode};
         use x509::attr::Attribute;
-        use x509::request::CertReqInfo;
+        use x509::request::{CertReq, CertReqInfo, ExtensionReq};
         use x509::PkiPath;
         use x509::{ext::Extension, name::RdnSequence};
 
         use axum::response::Response;
-        use http::{header::CONTENT_TYPE, Request};
+        use http::Request;
         use hyper::Body;
         use tower::ServiceExt; // for `app.oneshot()`
 
@@ -425,12 +412,18 @@ mod tests {
             };
 
             // Sign the request.
-            cri.sign(&pki).unwrap()
+            vec![CertReq::from_der(&cri.sign(&pki).unwrap()).unwrap()]
+                .to_vec()
+                .unwrap()
         }
 
         async fn attest_response(state: State, response: Response) {
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            let path = PkiPath::from_der(&body).unwrap();
+
+            let response = Output::from_der(body.as_ref()).unwrap();
+
+            let mut path = PkiPath::from(response.chain);
+            path.push(response.issued[0].clone());
             let issr = Certificate::from_der(&state.crt).unwrap();
             assert_eq!(2, path.len());
             assert_eq!(issr, path[0]);
@@ -440,14 +433,12 @@ mod tests {
         #[test]
         fn reencode() {
             let encoded = cr(SECP_256_R_1, vec![]);
+            let crs = Vec::<CertReq<'_>>::from_der(&encoded).unwrap();
+            assert_eq!(crs.len(), 1);
 
-            for byte in &encoded {
-                eprint!("{:02X}", byte);
-            }
-            eprintln!();
-
+            let encoded: Vec<u8> = crs[0].to_vec().unwrap();
             let decoded = CertReq::from_der(&encoded).unwrap();
-            let reencoded = decoded.to_vec().unwrap();
+            let reencoded: Vec<u8> = decoded.to_vec().unwrap();
             assert_eq!(encoded, reencoded);
         }
 
@@ -462,7 +453,6 @@ mod tests {
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
-                .header(CONTENT_TYPE, PKCS10)
                 .body(Body::from(cr(SECP_256_R_1, vec![ext])))
                 .unwrap();
 
@@ -482,7 +472,6 @@ mod tests {
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
-                .header(CONTENT_TYPE, PKCS10)
                 .body(Body::from(cr(SECP_256_R_1, vec![ext])))
                 .unwrap();
 
@@ -490,6 +479,41 @@ mod tests {
             let response = app(state.clone()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
             attest_response(state, response).await;
+        }
+
+        #[tokio::test]
+        async fn kvm_hostname_many_certs() {
+            let ext = Extension {
+                extn_id: Kvm::OID,
+                critical: false,
+                extn_value: &[],
+            };
+
+            let one_cr_bytes = cr(SECP_256_R_1, vec![ext]);
+            let crs = Vec::<CertReq<'_>>::from_der(&one_cr_bytes).unwrap();
+            assert_eq!(crs.len(), 1);
+
+            let mut five_crs = Vec::new();
+            five_crs.push(crs[0].clone());
+            five_crs.push(crs[0].clone());
+            five_crs.push(crs[0].clone());
+            five_crs.push(crs[0].clone());
+            five_crs.push(crs[0].clone());
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .body(Body::from(five_crs.to_vec().unwrap()))
+                .unwrap();
+
+            let state = hostname_state();
+            let response = app(state.clone()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let output = Output::from_der(body.as_ref()).unwrap();
+
+            assert_eq!(output.issued.len(), five_crs.len());
         }
 
         #[tokio::test]
@@ -507,7 +531,6 @@ mod tests {
                 let request = Request::builder()
                     .method("POST")
                     .uri("/")
-                    .header(CONTENT_TYPE, PKCS10)
                     .body(Body::from(cr(SECP_256_R_1, vec![ext])))
                     .unwrap();
 
@@ -532,7 +555,6 @@ mod tests {
                 let request = Request::builder()
                     .method("POST")
                     .uri("/")
-                    .header(CONTENT_TYPE, PKCS10)
                     .body(Body::from(cr(SECP_256_R_1, vec![ext])))
                     .unwrap();
 
@@ -561,7 +583,6 @@ mod tests {
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
-                .header(CONTENT_TYPE, PKCS10)
                 .body(Body::from(cr(SECP_384_R_1, vec![ext])))
                 .unwrap();
 
@@ -588,7 +609,6 @@ mod tests {
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
-                .header(CONTENT_TYPE, PKCS10)
                 .body(Body::from(cr(SECP_384_R_1, vec![ext])))
                 .unwrap();
 
@@ -603,7 +623,6 @@ mod tests {
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
-                .header(CONTENT_TYPE, PKCS10)
                 .body(Body::from(cr(SECP_256_R_1, vec![])))
                 .unwrap();
 
@@ -616,7 +635,6 @@ mod tests {
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
-                .header(CONTENT_TYPE, PKCS10)
                 .body(Body::from(cr(SECP_256_R_1, vec![])))
                 .unwrap();
 
@@ -625,35 +643,9 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn err_no_content_type() {
-            let request = Request::builder()
-                .method("POST")
-                .uri("/")
-                .body(Body::from(cr(SECP_256_R_1, vec![])))
-                .unwrap();
-
-            let response = app(certificates_state()).oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        }
-
-        #[tokio::test]
-        async fn err_bad_content_type() {
-            let request = Request::builder()
-                .method("POST")
-                .header(CONTENT_TYPE, "text/plain")
-                .uri("/")
-                .body(Body::from(cr(SECP_256_R_1, vec![])))
-                .unwrap();
-
-            let response = app(certificates_state()).oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        }
-
-        #[tokio::test]
         async fn err_empty_body() {
             let request = Request::builder()
                 .method("POST")
-                .header(CONTENT_TYPE, PKCS10)
                 .uri("/")
                 .body(Body::empty())
                 .unwrap();
@@ -666,7 +658,6 @@ mod tests {
         async fn err_bad_body() {
             let request = Request::builder()
                 .method("POST")
-                .header(CONTENT_TYPE, PKCS10)
                 .uri("/")
                 .body(Body::from(vec![0x01, 0x02, 0x03, 0x04]))
                 .unwrap();
@@ -683,7 +674,6 @@ mod tests {
 
             let request = Request::builder()
                 .method("POST")
-                .header(CONTENT_TYPE, PKCS10)
                 .uri("/")
                 .body(Body::from(cr))
                 .unwrap();
