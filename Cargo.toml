@@ -38,6 +38,7 @@ tower = { version = "^0.4.11", features = ["util"] }
 axum = "^0.5.1"
 http = "^0.2.6"
 memoffset = "0.6.4"
+rstest = "0.15"
 testaso = "0.1"
 
 [profile.release]
