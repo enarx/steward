@@ -20,7 +20,7 @@ use body::Body;
 use traits::{FromBytes, ParseBytes, Steal};
 
 use der::Encode;
-use ring::signature::UnparsedPublicKey;
+use p256::ecdsa::signature::Verifier;
 use sgx::ReportBody;
 use sha2::{digest::DynDigest, Sha256};
 use x509::TbsCertificate;
@@ -80,9 +80,9 @@ impl<'a> Quote<'a> {
         }
 
         // Verify the signature on the enclave report.
-        let alg = &ring::signature::ECDSA_P256_SHA256_ASN1;
-        let upk = UnparsedPublicKey::new(alg, self.sign.key.sec1());
-        upk.verify(self.body.as_ref(), &self.sign.sig.to_vec()?)?;
+        let vkey = p256::ecdsa::VerifyingKey::from_sec1_bytes(self.sign.key.sec1())?;
+        let sig = p256::ecdsa::Signature::from_der(&self.sign.sig.to_vec()?)?;
+        vkey.verify(self.body.as_ref(), &sig)?;
 
         // Verify the PCE security version.
         if self.body.pce_svn() < Body::PCE_SVN {
