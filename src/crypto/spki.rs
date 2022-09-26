@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+use anyhow::{anyhow, Result};
 use const_oid::ObjectIdentifier;
 use der::{asn1::AnyRef, Sequence};
-use ring::signature::VerificationAlgorithm as VerAlg;
-use ring::signature::*;
+use rsa::pkcs1::DecodeRsaPublicKey;
 use spki::{AlgorithmIdentifier, SubjectPublicKeyInfo};
 
 use const_oid::db::rfc5912::{
@@ -12,8 +12,6 @@ use const_oid::db::rfc5912::{
     ID_SHA_256 as SHA256, ID_SHA_384 as SHA384, ID_SHA_512 as SHA512, RSA_ENCRYPTION as RSA,
     SECP_256_R_1 as P256, SECP_384_R_1 as P384,
 };
-
-use anyhow::{anyhow, Result};
 
 const ES256: (ObjectIdentifier, Option<AnyRef<'static>>) = (ECDSA_WITH_SHA_256, None);
 const ES384: (ObjectIdentifier, Option<AnyRef<'static>>) = (ECDSA_WITH_SHA_384, None);
@@ -46,10 +44,23 @@ pub trait SubjectPublicKeyInfoExt {
 
 impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
     fn verify(&self, body: &[u8], algo: AlgorithmIdentifier<'_>, sign: &[u8]) -> Result<()> {
-        let alg: &'static dyn VerAlg = match (self.algorithm.oids()?, (algo.oid, algo.parameters)) {
-            ((ECPK, Some(P256)), ES256) => &ECDSA_P256_SHA256_ASN1,
-            ((ECPK, Some(P384)), ES384) => &ECDSA_P384_SHA384_ASN1,
+        match (self.algorithm.oids()?, (algo.oid, algo.parameters)) {
+            ((ECPK, Some(P256)), ES256) => {
+                use p256::ecdsa::signature::Verifier;
+                let vkey = p256::ecdsa::VerifyingKey::from_sec1_bytes(self.subject_public_key)?;
+                let sig = p256::ecdsa::Signature::from_der(sign)?;
+                Ok(vkey.verify(body, &sig)?)
+            }
+
+            ((ECPK, Some(P384)), ES384) => {
+                use p384::ecdsa::signature::Verifier;
+                let vkey = p384::ecdsa::VerifyingKey::from_sec1_bytes(self.subject_public_key)?;
+                let sig = p384::ecdsa::Signature::from_der(sign)?;
+                Ok(vkey.verify(body, &sig)?)
+            }
+
             ((RSA, None), (ID_RSASSA_PSS, Some(p))) => {
+                use signature::{Signature, Verifier};
                 // Decompose the RSA PSS parameters.
                 let RsaSsaPssParams {
                     hash_algorithm: hash,
@@ -57,6 +68,9 @@ impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
                     salt_length: salt,
                     trailer_field: tfld,
                 } = p.decode_into()?;
+
+                let pkey = rsa::RsaPublicKey::from_pkcs1_der(self.subject_public_key)?;
+                let s = rsa::pss::Signature::from_bytes(sign)?;
 
                 // Validate the sanity of the mask algorithm.
                 let algo = match (mask.oid, mask.parameters) {
@@ -72,18 +86,24 @@ impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
                     _ => Err(anyhow!("unsupported")),
                 }?;
 
-                // Prepare for validation.
                 match (hash.oids()?, algo) {
-                    ((SHA256, None), SHA256) => &RSA_PSS_2048_8192_SHA256,
-                    ((SHA384, None), SHA384) => &RSA_PSS_2048_8192_SHA384,
-                    ((SHA512, None), SHA512) => &RSA_PSS_2048_8192_SHA512,
-                    _ => return Err(anyhow!("unsupported")),
+                    ((SHA256, None), SHA256) => {
+                        let vkey = rsa::pss::VerifyingKey::<sha2::Sha256>::new(pkey);
+                        Ok(vkey.verify(body, &s)?)
+                    }
+                    ((SHA384, None), SHA384) => {
+                        let vkey = rsa::pss::VerifyingKey::<sha2::Sha384>::new(pkey);
+                        Ok(vkey.verify(body, &s)?)
+                    }
+                    ((SHA512, None), SHA512) => {
+                        let vkey = rsa::pss::VerifyingKey::<sha2::Sha512>::new(pkey);
+                        Ok(vkey.verify(body, &s)?)
+                    }
+                    _ => Err(anyhow!("unsupported")),
                 }
             }
-            _ => return Err(anyhow!("unsupported")),
-        };
 
-        let upk = UnparsedPublicKey::new(alg, self.subject_public_key);
-        Ok(upk.verify(body, sign)?)
+            _ => Err(anyhow!("unsupported")),
+        }
     }
 }
