@@ -19,6 +19,9 @@ ring = { version = "0.16.20", features = ["std"] }
 zeroize = { version = "^1.5.2", features = ["alloc"] }
 flagset = "0.4.3"
 sgx = { version = "0.5.0" }
+p256 = { version = "0.11", features = ["ecdsa"] }
+p384 = { version = "0.11", features = ["ecdsa"] }
+rand = { version = "0.8", features = ["std"] }
 
 tracing-subscriber = { version="^0.3.15", features = ["env-filter", "json"] }
 tower-http = { version = "^0.3.0", features = ["trace"] }
