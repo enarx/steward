@@ -1,14 +1,32 @@
 name: Test
 on: [ push, pull_request ]
 jobs:
-  test:
+  test_native:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2.4.0
     - name: Setup Rust toolchain
       run: rustup show
-    - name: cargo test
+    - name: cargo test native
       uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --workspace --all-features
+        args: --workspace --all-features --target=x86_64-unknown-linux-musl
+
+  test_wasi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2.4.0
+      - name: Setup Rust toolchain
+        run: rustup show
+      - name: install wasi
+        run: rustup target install wasm32-wasi
+      - name: download enarx
+        run: curl -sLO https://github.com/enarx/enarx/releases/download/v0.6.4/enarx-0.6.4-1_amd64.deb
+      - name: install enarx
+        run: sudo dpkg -i enarx-0.6.4-1_amd64.deb
+      - name: cargo test wasm32-wasi
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --workspace --all-features --target=wasm32-wasi
