@@ -65,10 +65,9 @@
         buildPackage = extraArgs: craneLib.buildPackage (commonArgs // {inherit cargoArtifacts;} // extraArgs);
 
         nativeBin = buildPackage {};
-        # TODO: Add wasm32-wasi support
-        #wasm32WasiBin = buildPackage {
-        #  CARGO_BUILD_TARGET = "wasm32-wasi";
-        #};
+        wasm32WasiBin = buildPackage {
+          CARGO_BUILD_TARGET = "wasm32-wasi";
+        };
         x86_64LinuxMuslBin = buildPackage {
           CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
           CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
@@ -88,8 +87,7 @@
         formatter = pkgs.alejandra;
 
         packages."${cargo.toml.package.name}" = nativeBin;
-        # TODO: Add wasm32-wasi support
-        #packages."${cargo.toml.package.name}-wasm32-wasi" = wasm32WasiBin;
+        packages."${cargo.toml.package.name}-wasm32-wasi" = wasm32WasiBin;
         packages."${cargo.toml.package.name}-x86_64-unknown-linux-musl" = x86_64LinuxMuslBin;
         packages."${cargo.toml.package.name}-x86_64-unknown-linux-musl-oci" = buildImage x86_64LinuxMuslBin;
         packages.default = nativeBin;
