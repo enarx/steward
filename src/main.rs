@@ -11,7 +11,8 @@ mod ext;
 
 use crypto::*;
 
-use std::net::{IpAddr, SocketAddr};
+use std::io::BufRead;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -115,14 +116,24 @@ impl State {
         crt: impl AsRef<Path>,
     ) -> anyhow::Result<Self> {
         // Load the key file.
-        let mut key = std::io::BufReader::new(std::fs::File::open(key)?);
+        let key = std::io::BufReader::new(std::fs::File::open(key)?);
+
+        // Load the crt file.
+        let crt = std::io::BufReader::new(std::fs::File::open(crt)?);
+
+        Self::read(san, key, crt)
+    }
+
+    pub fn read(
+        san: Option<String>,
+        mut key: impl BufRead,
+        mut crt: impl BufRead,
+    ) -> anyhow::Result<Self> {
         let key = match rustls_pemfile::read_one(&mut key)? {
             Some(Item::PKCS8Key(buf)) => Zeroizing::new(buf),
             _ => return Err(anyhow!("invalid key file")),
         };
 
-        // Load the crt file.
-        let mut crt = std::io::BufReader::new(std::fs::File::open(crt)?);
         let crt = match rustls_pemfile::read_one(&mut crt)? {
             Some(Item::X509Certificate(buf)) => buf,
             _ => return Err(anyhow!("invalid key file")),
@@ -132,7 +143,7 @@ impl State {
         PrivateKeyInfo::from_der(key.as_ref())?;
         Certificate::from_der(crt.as_ref())?;
 
-        Ok(Self { key, crt, san })
+        Ok(State { crt, san, key })
     }
 
     pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
@@ -193,7 +204,8 @@ impl State {
     }
 }
 
-#[tokio::main]
+#[cfg_attr(target_os = "wasi", tokio::main(flavor = "current_thread"))]
+#[cfg_attr(any(target_family = "unix", windows), tokio::main)]
 async fn main() -> anyhow::Result<()> {
     if std::env::var("RUST_LOG_JSON").is_ok() {
         tracing_subscriber::fmt::fmt()
@@ -207,7 +219,6 @@ async fn main() -> anyhow::Result<()> {
     let args = confargs::args::<Toml>(prefix_char_filter::<'@'>)
         .context("Failed to parse config")
         .map(Args::parse_from)?;
-    let addr = SocketAddr::from((args.addr, args.port));
     let state = match (args.key, args.crt, args.host) {
         (None, None, Some(host)) => State::generate(args.san, &host)?,
         (Some(key), Some(crt), _) => State::load(args.san, key, crt)?,
@@ -217,10 +228,28 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    tracing::debug!("listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app(state).into_make_service())
-        .await?;
+    #[cfg(not(target_os = "wasi"))]
+    {
+        use std::net::SocketAddr;
+        let addr = SocketAddr::from((args.addr, args.port));
+        tracing::debug!("listening on {}", addr);
+        axum::Server::bind(&addr)
+            .serve(app(state).into_make_service())
+            .await?;
+    }
+    #[cfg(target_os = "wasi")]
+    {
+        use std::os::wasi::io::FromRawFd;
+        tracing::debug!("listening");
+        let std_listener = unsafe { std::net::TcpListener::from_raw_fd(3) };
+        std_listener
+            .set_nonblocking(true)
+            .context("failed to set NONBLOCK")?;
+        axum::Server::from_tcp(std_listener)
+            .context("failed to construct server")?
+            .serve(app(state).into_make_service())
+            .await?;
+    }
 
     Ok(())
 }
@@ -460,7 +489,16 @@ mod tests {
         use tower::ServiceExt; // for `app.oneshot()`
 
         fn certificates_state() -> State {
-            State::load(None, "testdata/ca.key", "testdata/ca.crt").unwrap()
+            #[cfg(not(target_os = "wasi"))]
+            return State::load(None, "testdata/ca.key", "testdata/ca.crt")
+                .expect("failed to load state");
+            #[cfg(target_os = "wasi")]
+            {
+                let crt = std::io::BufReader::new(include_bytes!("../testdata/ca.crt").as_slice());
+                let key = std::io::BufReader::new(include_bytes!("../testdata/ca.key").as_slice());
+
+                State::read(None, key, crt).expect("failed to load state")
+            }
         }
 
         fn hostname_state() -> State {
