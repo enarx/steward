@@ -539,7 +539,7 @@ mod tests {
 
             let path = if multi {
                 let response = Output::from_der(body.as_ref()).unwrap();
-                let mut path = PkiPath::from(response.chain);
+                let mut path = response.chain;
                 path.push(response.issued[0].clone());
                 path
             } else {
@@ -633,12 +633,13 @@ mod tests {
             let crs = Vec::<CertReq<'_>>::from_der(&one_cr_bytes).unwrap();
             assert_eq!(crs.len(), 1);
 
-            let mut five_crs = Vec::new();
-            five_crs.push(crs[0].clone());
-            five_crs.push(crs[0].clone());
-            five_crs.push(crs[0].clone());
-            five_crs.push(crs[0].clone());
-            five_crs.push(crs[0].clone());
+            let five_crs = vec![
+                crs[0].clone(),
+                crs[0].clone(),
+                crs[0].clone(),
+                crs[0].clone(),
+                crs[0].clone(),
+            ];
 
             let request = Request::builder()
                 .method("POST")
