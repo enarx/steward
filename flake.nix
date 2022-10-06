@@ -69,6 +69,7 @@
           nativeBuildInputs = [enarxBin];
 
           CARGO_BUILD_TARGET = "wasm32-wasi";
+          CARGO_TARGET_WASM_WASI32_RUNNER = "enarx run --wasmcfgfile ${self}/Enarx.toml";
         };
         x86_64LinuxMuslBin = buildPackage {
           CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
@@ -88,11 +89,18 @@
       in {
         formatter = pkgs.alejandra;
 
-        packages."${cargo.toml.package.name}" = nativeBin;
-        packages."${cargo.toml.package.name}-wasm32-wasi" = wasm32WasiBin;
-        packages."${cargo.toml.package.name}-x86_64-unknown-linux-musl" = x86_64LinuxMuslBin;
-        packages."${cargo.toml.package.name}-x86_64-unknown-linux-musl-oci" = buildImage x86_64LinuxMuslBin;
-        packages.default = nativeBin;
+        packages =
+          {
+            default = nativeBin;
+
+            "${cargo.toml.package.name}" = nativeBin;
+            "${cargo.toml.package.name}-x86_64-unknown-linux-musl" = x86_64LinuxMuslBin;
+            "${cargo.toml.package.name}-x86_64-unknown-linux-musl-oci" = buildImage x86_64LinuxMuslBin;
+          }
+          # TODO: Remove once an overlay is created in enarx
+          // (pkgs.lib.optionalAttrs (system != "powerpc64le-linux") {
+            "${cargo.toml.package.name}-wasm32-wasi" = wasm32WasiBin;
+          });
 
         devShells.default = pkgs.mkShell {
           buildInputs =
