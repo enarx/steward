@@ -204,8 +204,8 @@ impl State {
     }
 }
 
+#[cfg_attr(not(target_os = "wasi"), tokio::main)]
 #[cfg_attr(target_os = "wasi", tokio::main(flavor = "current_thread"))]
-#[cfg_attr(any(target_family = "unix", windows), tokio::main)]
 async fn main() -> anyhow::Result<()> {
     if std::env::var("RUST_LOG_JSON").is_ok() {
         tracing_subscriber::fmt::fmt()
