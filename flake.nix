@@ -66,6 +66,8 @@
 
         nativeBin = buildPackage {};
         wasm32WasiBin = buildPackage {
+          nativeBuildInputs = [enarxBin];
+
           CARGO_BUILD_TARGET = "wasm32-wasi";
         };
         x86_64LinuxMuslBin = buildPackage {
