@@ -62,8 +62,14 @@
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-        buildPackage = extraArgs: craneLib.buildPackage (commonArgs // {inherit cargoArtifacts;} // extraArgs);
 
+        commonArtifactArgs = commonArgs // {inherit cargoArtifacts;};
+
+        cargoClippy = craneLib.cargoClippy (commonArtifactArgs // {cargoClippyExtraArgs = "--all-targets --workspace -- --deny warnings";});
+        cargoFmt = craneLib.cargoFmt commonArtifactArgs;
+        cargoNextest = craneLib.cargoNextest commonArtifactArgs;
+
+        buildPackage = extraArgs: craneLib.buildPackage (commonArtifactArgs // extraArgs);
         nativeBin = buildPackage {};
         wasm32WasiBin = buildPackage {
           nativeBuildInputs = [enarxBin];
@@ -88,6 +94,10 @@
           };
       in {
         formatter = pkgs.alejandra;
+
+        checks.clippy = cargoClippy;
+        checks.fmt = cargoFmt;
+        checks.nextest = cargoNextest;
 
         packages =
           {
