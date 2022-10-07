@@ -18,4 +18,6 @@ allow = [
 ]
 
 [sources.allow-org]
-github = ["rjzak"] # temporary until https://github.com/hyperium/hyper/pull/2900 is merged
+github = ["rjzak", "WebAssembly"]
+# rjzak: temporary until https://github.com/hyperium/hyper/pull/2900 is merged
+# WebAssembly: wasi-crypto-guest isn't published on crates.io

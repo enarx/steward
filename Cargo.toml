@@ -65,6 +65,13 @@ tracing = { workspace = true }
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
+[target.'cfg(target_os = "wasi")'.dependencies]
+wasi-crypto-guest = { git = "https://github.com/WebAssembly/wasi-crypto", branch = "main", optional = true }
+
+[features]
+default = []
+wasi-crypto = ["dep:wasi-crypto-guest"]
+
 [profile.release]
 incremental = false
 codegen-units = 1
