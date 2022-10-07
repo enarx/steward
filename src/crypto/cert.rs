@@ -9,7 +9,7 @@ use anyhow::{anyhow, Result};
 use const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE};
 use der::asn1::BitStringRef;
 use der::{Decode, Encode};
-use pkcs8::{AlgorithmIdentifier, ObjectIdentifier, PrivateKeyInfo};
+use sec1::pkcs8::{AlgorithmIdentifier, ObjectIdentifier, PrivateKeyInfo};
 use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
 use x509::ext::Extension;
 use x509::{Certificate, TbsCertificate};

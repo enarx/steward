@@ -10,46 +10,45 @@ license = "AGPL-3.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-const-oid = { version = "0.9.0", features = ["db"] }
-der = { version = "0.6", features = ["std"] }
-pkcs8 = { version = "0.9" }
-sec1 = { version = "0.3", features = ["std"] }
-spki = { version = "0.6" }
-x509 = { version = "0.1", features = ["std"], package = "x509-cert" }
-rustls-pemfile = "0.3.0"
-sha2 = "^0.10.2"
-zeroize = { version = "^1.5.2", features = ["alloc"] }
-flagset = "0.4.3"
-sgx = { version = "0.5.0" }
-signature = "1.6"
-rsa = {version = "0.7.0-rc.0", features = ["std"] }
-p256 = { version = "0.11", features = ["ecdsa"] }
-p384 = { version = "0.11", features = ["ecdsa"] }
-rand = { version = "0.8", features = ["std"] }
+const-oid = { version = "0.9.0", features = ["db"], default-features = false }
+der = { version = "0.6", features = ["std"], default-features = false }
+sec1 = { version = "0.3", features = ["std", "pkcs8"], default-features = false }
+spki = { version = "0.6", default-features = false }
+x509 = { version = "0.1", features = ["std"], package = "x509-cert", default-features = false }
+rustls-pemfile = {version = "0.3.0", default-features = false }
+sha2 = { version = "^0.10.2", default-features = false }
+zeroize = { version = "^1.5.2", features = ["alloc"], default-features = false }
+flagset = { version = "0.4.3", default-features = false}
+sgx = { version = "0.5.0", default-features = false }
+signature = {version = "1.6", default-features = false }
+rsa = {version = "0.7.0-rc.0", features = ["std"], default-features = false }
+p256 = { version = "0.11", features = ["ecdsa", "std", "pem"], default-features = false }
+p384 = { version = "0.11", features = ["ecdsa", "std", "pem"], default-features = false }
+rand = { version = "0.8", features = ["std"], default-features = false }
 
-tracing-subscriber = { version="^0.3.15", features = ["env-filter", "json"] }
-tower-http = { version = "^0.3.0", features = ["trace"] }
-axum = { version = "^0.5.16", features = ["headers"] }
-clap = { version = "^3.0.14", features = ["derive", "env"] }
-hyper = { git = "https://github.com/rjzak/hyper", branch = "wasi_wip", features = ["server"] }
-tokio = { version = "^1.21.2", features = ["rt", "macros"] }
-uuid = { version = "^0.8.2", features = ["v4"] }
-tracing = "^0.1.29"
-anyhow = "^1.0.55"
-base64 = "^0.13.0"
-mime = "^0.3.16"
-confargs = "^0.1.3"
+tracing-subscriber = { version="^0.3.15", features = ["env-filter", "json", "fmt"], default-features = false }
+tower-http = { version = "^0.3.0", features = ["trace"], default-features = false }
+axum = { version = "^0.5.16", features = ["headers"], default-features = false }
+clap = { version = "^3.0.14", features = ["std", "derive", "env"], default-features = false }
+hyper = { git = "https://github.com/rjzak/hyper", branch = "wasi_wip", features = ["http1", "server"], default-features = false }
+tokio = { version = "^1.21.2", features = ["rt", "macros"], default-features = false }
+uuid = { version = "^0.8.2", features = ["v4"], default-features = false }
+tracing = { version = "^0.1.29", default-features = false }
+anyhow = { version = "^1.0.55", default-features = false }
+base64 = { version = "^0.13.0", default-features = false }
+mime = { version = "^0.3.16", default-features = false }
+confargs = { version = "^0.1.3", default-features = false }
 
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
-tokio = { version = "^1.21.2", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "^1.21.2", features = ["rt-multi-thread", "macros"], default-features = false }
 
 [dev-dependencies]
-tower = { version = "^0.4.11", features = ["util"] }
-axum = "^0.5.16"
-http = "^0.2.6"
-memoffset = "0.6.4"
-rstest = "0.15"
-testaso = "0.1"
+tower = { version = "^0.4.11", features = ["util"], default-features = false }
+axum = { version = "^0.5.16", default-features = false }
+http = { version = "^0.2.6", default-features = false }
+memoffset = { version = "0.6.4", default-features = false }
+rstest = { version = "0.15", default-features = false }
+testaso = { version = "0.1", default-features = false }
 
 [profile.release]
 incremental = false
