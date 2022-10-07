@@ -38,8 +38,8 @@ use ext::sgx::Sgx;
 use ext::snp::Snp;
 use ext::ExtVerifier;
 use hyper::StatusCode;
-use pkcs8::PrivateKeyInfo;
 use rustls_pemfile::Item;
+use sec1::pkcs8::PrivateKeyInfo;
 use tower_http::trace::{
     DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse,
     TraceLayer,

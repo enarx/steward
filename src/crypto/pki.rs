@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use anyhow::{anyhow, bail, Result};
-use pkcs8::{EncodePrivateKey, ObjectIdentifier, PrivateKeyInfo, SubjectPublicKeyInfo};
+use sec1::pkcs8::{EncodePrivateKey, ObjectIdentifier, PrivateKeyInfo, SubjectPublicKeyInfo};
 use zeroize::Zeroizing;
 
 use der::Decode;

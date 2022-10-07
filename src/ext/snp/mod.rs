@@ -12,7 +12,7 @@ use const_oid::ObjectIdentifier;
 use der::asn1::UIntRef;
 use der::{Decode, Encode, Sequence};
 use flagset::{flags, FlagSet};
-use pkcs8::AlgorithmIdentifier;
+use sec1::pkcs8::AlgorithmIdentifier;
 use sha2::Digest;
 use x509::ext::Extension;
 use x509::{request::CertReqInfo, Certificate};

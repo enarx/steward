@@ -3,7 +3,7 @@
 
 use anyhow::{anyhow, Result};
 use der::{asn1::BitStringRef, Encode};
-use pkcs8::PrivateKeyInfo;
+use sec1::pkcs8::PrivateKeyInfo;
 use x509::request::{CertReq, CertReqInfo};
 
 use super::{PrivateKeyInfoExt, SubjectPublicKeyInfoExt};
