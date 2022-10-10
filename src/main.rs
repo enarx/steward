@@ -36,9 +36,9 @@ use cryptography::rustls_pemfile;
 use cryptography::sec1::pkcs8::PrivateKeyInfo;
 use cryptography::x509::attr::Attribute;
 use cryptography::x509::ext::pkix::name::GeneralName;
-use cryptography::x509::ext::pkix::{
-    BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages, SubjectAltName,
-};
+#[cfg(debug_assertions)]
+use cryptography::x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
+use cryptography::x509::ext::pkix::{ExtendedKeyUsage, SubjectAltName};
 use cryptography::x509::name::RdnSequence;
 use cryptography::x509::request::{CertReq, ExtensionReq};
 use cryptography::x509::time::{Time, Validity};
@@ -80,6 +80,7 @@ struct Args {
     #[arg(short, long, env = "ROCKET_ADDRESS", default_value = "::")]
     addr: IpAddr,
 
+    #[cfg(debug_assertions)]
     #[arg(long, env = "RENDER_EXTERNAL_HOSTNAME")]
     host: Option<String>,
 
@@ -153,7 +154,17 @@ impl State {
 
         // Validate the syntax of the files.
         PrivateKeyInfo::from_der(key.as_ref())?;
+        #[cfg(debug_assertions)]
         Certificate::from_der(crt.as_ref())?;
+        #[cfg(not(debug_assertions))]
+        {
+            let cert = Certificate::from_der(crt.as_ref())?;
+            let iss = &cert.tbs_certificate;
+            if iss.issuer_unique_id == iss.subject_unique_id && iss.issuer == iss.subject {
+                // A self-signed certificate is not appropriate for Release mode.
+                return Err(anyhow!("invalid certificate"));
+            }
+        }
 
         let config = if let Some(path) = config {
             let config = std::fs::read_to_string(path).context("failed to read config file")?;
@@ -170,6 +181,7 @@ impl State {
         })
     }
 
+    #[cfg(debug_assertions)]
     pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
         use cryptography::const_oid::db::rfc5912::SECP_256_R_1 as P256;
 
@@ -248,11 +260,22 @@ async fn main() -> anyhow::Result<()> {
     let args = confargs::args::<Toml>(prefix_char_filter::<'@'>)
         .context("Failed to parse config")
         .map(Args::parse_from)?;
+
+    #[cfg(debug_assertions)]
     let state = match (args.key, args.crt, args.host) {
         (None, None, Some(host)) => State::generate(args.san, &host)?,
         (Some(key), Some(crt), _) => State::load(args.san, key, crt, args.config)?,
         _ => {
             eprintln!("Either:\n* Specify the public key `--crt` and private key `--key`, or\n* Specify the host `--host`.\n\nRun with `--help` for more information.");
+            return Err(anyhow!("invalid configuration"));
+        }
+    };
+
+    #[cfg(not(debug_assertions))]
+    let state = match (args.key, args.crt) {
+        (Some(key), Some(crt)) => State::load(args.san, key, crt)?,
+        _ => {
+            eprintln!("Specify the public key `--crt` and private key `--key`.\nRun with `--help` for more information.");
             return Err(anyhow!("invalid configuration"));
         }
     };
@@ -346,6 +369,14 @@ fn attest_request(
         StatusCode::BAD_REQUEST
     })?;
 
+    let dbg = if cfg!(debug_assertions) {
+        // If the issuer is self-signed, we are in debug mode.
+        let iss = &issuer.tbs_certificate;
+        iss.issuer_unique_id == iss.subject_unique_id && iss.issuer == iss.subject
+    } else {
+        false
+    };
+
     let mut extensions = Vec::new();
     let mut attested = false;
     for Attribute { oid, values } in info.attributes.iter() {
@@ -359,11 +390,6 @@ fn attest_request(
                 StatusCode::BAD_REQUEST
             })?;
             for ext in Vec::from(ereq) {
-                // If the issuer is self-signed, we are in debug mode.
-                let iss = &issuer.tbs_certificate;
-                let dbg = iss.issuer_unique_id == iss.subject_unique_id;
-                let dbg = dbg && iss.issuer == iss.subject;
-
                 // Validate the extension.
                 let (copy, att) = match ext.extn_id {
                     Kvm::OID => (Kvm::default().verify(&info, &ext, dbg), Kvm::ATT),
@@ -545,6 +571,7 @@ mod tests {
         use sgx_validation::Sgx;
         use snp_validation::{Evidence, Snp};
 
+        #[cfg(debug_assertions)]
         use axum::response::Response;
         use http::header::CONTENT_TYPE;
         use http::Request;
@@ -554,17 +581,33 @@ mod tests {
 
         fn certificates_state() -> State {
             #[cfg(not(target_os = "wasi"))]
-            return State::load(None, "testdata/ca.key", "testdata/ca.crt", None)
-                .expect("failed to load state");
+            {
+                #[cfg(debug_assertions)]
+                return State::load(None, "testdata/ca.key", "testdata/ca.crt")
+                    .expect("failed to load state");
+                #[cfg(not(debug_assertions))]
+                return State::load(None, "testdata/test.key", "testdata/test.crt")
+                    .expect("failed to load state");
+            }
             #[cfg(target_os = "wasi")]
             {
-                let crt = std::io::BufReader::new(include_bytes!("../testdata/ca.crt").as_slice());
-                let key = std::io::BufReader::new(include_bytes!("../testdata/ca.key").as_slice());
+                let (crt, key) = if cfg!(debug_assertions) {
+                    (
+                        std::io::BufReader::new(include_bytes!("../testdata/ca.crt").as_slice()),
+                        std::io::BufReader::new(include_bytes!("../testdata/ca.key").as_slice()),
+                    )
+                } else {
+                    (
+                        std::io::BufReader::new(include_bytes!("../testdata/test.crt").as_slice()),
+                        std::io::BufReader::new(include_bytes!("../testdata/test.key").as_slice()),
+                    )
+                };
 
                 State::read(None, key, crt, None).expect("failed to load state")
             }
         }
 
+        #[cfg(debug_assertions)]
         fn hostname_state() -> State {
             State::generate(None, "localhost").unwrap()
         }
@@ -598,6 +641,7 @@ mod tests {
             }
         }
 
+        #[cfg(debug_assertions)]
         async fn attest_response(state: State, response: Response, multi: bool) {
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
 
@@ -656,10 +700,18 @@ mod tests {
                 .unwrap();
 
             let response = app(certificates_state()).oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-            attest_response(certificates_state(), response, multi).await;
+            #[cfg(debug_assertions)]
+            {
+                assert_eq!(response.status(), StatusCode::OK);
+                attest_response(certificates_state(), response, multi).await;
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            }
         }
 
+        #[cfg(debug_assertions)]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -687,6 +739,7 @@ mod tests {
 
         // Though similar to the above test, this is the only test which
         // actually sends many CSRs, versus an array of just one CSR.
+        #[cfg(debug_assertions)]
         #[tokio::test]
         async fn kvm_hostname_many_certs() {
             init_tracing();
@@ -725,6 +778,7 @@ mod tests {
             assert_eq!(output.issued.len(), five_crs.len());
         }
 
+        #[cfg(debug_assertions)]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -754,6 +808,7 @@ mod tests {
             }
         }
 
+        #[cfg(debug_assertions)]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -784,6 +839,7 @@ mod tests {
             }
         }
 
+        #[cfg(debug_assertions)]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -818,6 +874,7 @@ mod tests {
             attest_response(certificates_state(), response, multi).await;
         }
 
+        #[cfg(debug_assertions)]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -853,6 +910,7 @@ mod tests {
             attest_response(state, response, multi).await;
         }
 
+        #[cfg(debug_assertions)]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -870,6 +928,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         }
 
+        #[cfg(debug_assertions)]
         #[tokio::test]
         async fn err_no_attestation_hostname() {
             init_tracing();
@@ -884,6 +943,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         }
 
+        #[cfg(debug_assertions)]
         #[rstest]
         #[case(false)]
         #[case(true)]
@@ -900,6 +960,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
+        #[cfg(debug_assertions)]
         #[tokio::test]
         async fn err_empty_body() {
             init_tracing();
@@ -913,6 +974,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
+        #[cfg(debug_assertions)]
         #[tokio::test]
         async fn err_bad_body() {
             init_tracing();
@@ -926,6 +988,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
+        #[cfg(debug_assertions)]
         #[tokio::test]
         async fn err_bad_csr_sig() {
             init_tracing();
