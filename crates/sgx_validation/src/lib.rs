@@ -12,9 +12,12 @@ use std::fmt::Debug;
 use crate::config::Config;
 use anyhow::{bail, ensure, Result};
 use cryptography::const_oid::ObjectIdentifier;
+#[cfg(not(feature = "insecure"))]
 use cryptography::sha2::{Digest, Sha256};
 use cryptography::x509::{ext::Extension, request::CertReqInfo, Certificate, TbsCertificate};
-use der::{Decode, Encode};
+use der::Decode;
+#[cfg(not(feature = "insecure"))]
+use der::Encode;
 
 #[derive(Clone, Debug)]
 pub struct Sgx([Certificate<'static>; 1]);
@@ -44,7 +47,6 @@ impl Sgx {
         cri: &CertReqInfo<'_>,
         ext: &Extension<'_>,
         config: Option<&Config>,
-        dbg: bool,
     ) -> Result<bool> {
         ensure!(!ext.critical, "sgx extension cannot be critical");
 
@@ -82,7 +84,8 @@ impl Sgx {
             "sgx pck algorithm mismatch"
         );
 
-        if !dbg {
+        #[cfg(not(feature = "insecure"))]
+        {
             // Validate that the certification request came from an SGX enclave.
             let hash = Sha256::digest(cri.public_key.to_vec()?);
             ensure!(

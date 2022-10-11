@@ -12,7 +12,9 @@ use cryptography::const_oid::db::rfc5912::ECDSA_WITH_SHA_384;
 use cryptography::const_oid::ObjectIdentifier;
 use cryptography::ext::TbsCertificateExt;
 use cryptography::sec1::pkcs8::AlgorithmIdentifier;
-use cryptography::sha2::{Digest, Sha384};
+#[cfg(not(feature = "insecure"))]
+use cryptography::sha2::Digest;
+use cryptography::sha2::Sha384;
 use cryptography::x509::ext::Extension;
 use cryptography::x509::{request::CertReqInfo, Certificate};
 use cryptography::x509::{PkiPath, TbsCertificate};
@@ -258,7 +260,6 @@ impl Snp {
         cri: &CertReqInfo<'_>,
         ext: &Extension<'_>,
         config: Option<&Config>,
-        dbg: bool,
     ) -> Result<bool> {
         ensure!(!ext.critical, "snp extension cannot be critical");
 
@@ -382,7 +383,8 @@ impl Snp {
 
         ensure!(report.body.vmpl == 0, "snp report vmpl field invalid value");
 
-        if !dbg {
+        #[cfg(not(feature = "insecure"))]
+        {
             // Validate that the certification request came from an SNP VM.
             let hash = Sha384::digest(cri.public_key.to_vec()?);
             ensure!(

@@ -46,6 +46,10 @@ rstest = { version = "0.16", default-features = false }
 sgx = { version = "0.6.0", default-features = false }
 testaso = { version = "0.1", default-features = false }
 
+[features]
+default = []
+insecure = []
+
 [profile.release]
 incremental = false
 codegen-units = 1
