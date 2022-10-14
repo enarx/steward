@@ -16,93 +16,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-native:
+  build:
     strategy:
       matrix:
         platform:
-        - host: ubuntu-20.04
+        - host: ubuntu-latest
           target: x86_64-unknown-linux-musl
+          test-bin: ./result/bin/steward --help
+          test-oci: |
+            docker load < ./result
+            docker run --rm steward:$(nix eval --raw .#steward-x86_64-unknown-linux-musl-oci.imageTag) steward --help
+
+        - host: ubuntu-latest
+          target: wasm32-wasi
+          test-bin: nix run --inputs-from . 'nixpkgs#wasmtime' ./result/bin/steward -- --help
+          test-oci: docker load < ./result
+          # TODO: Execute the WASM binary within OCI
+
     runs-on: ${{ matrix.platform.host }}
     steps:
     - uses: actions/checkout@v3
-    - uses: cachix/install-nix-action@v17
-    - uses: cachix/cachix-action@v10
+    - uses: cachix/install-nix-action@v18
+    - uses: cachix/cachix-action@v11
       with:
         name: enarx
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
-    - run: nix build -L '.#steward-${{ matrix.platform.target }}'
+    - run: nix build -L --show-trace '.#steward-${{ matrix.platform.target }}'
     - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result/bin/steward "steward-${{ matrix.platform.target }}"
     - uses: actions/upload-artifact@v3
       with:
         name: steward-${{ matrix.platform.target }}
         path: steward-${{ matrix.platform.target }}
+    - run: ${{ matrix.platform.test-bin }}
 
-    - run: nix build -L '.#steward-${{ matrix.platform.target }}-oci'
+    - run: nix build -L --show-trace '.#steward-${{ matrix.platform.target }}-oci'
     - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result "steward-${{ matrix.platform.target }}-oci"
     - uses: actions/upload-artifact@v3
       with:
         name: steward-${{ matrix.platform.target }}-oci
         path: steward-${{ matrix.platform.target }}-oci
-
-  build-wasm:
-    runs-on: ubuntu-20.04
-    steps:
-    - uses: actions/checkout@v3
-    - uses: cachix/install-nix-action@v17
-    - uses: cachix/cachix-action@v10
-      with:
-        name: enarx
-        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
-    - run: nix build -L '.#steward-wasm32-wasi'
-    - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result/bin/steward.wasm steward-wasm32-wasi
-    - uses: actions/upload-artifact@v3
-      with:
-        name: steward-wasm32-wasi
-        path: steward-wasm32-wasi
-
-  test-bin:
-    needs: build-native
-    strategy:
-      matrix:
-        platform:
-        - host: ubuntu-20.04
-          target: x86_64-unknown-linux-musl
-    runs-on: ${{ matrix.platform.host }}
-    steps:
-    - uses: actions/download-artifact@v3
-      with:
-        name: steward-${{ matrix.platform.target }}
-    - run: chmod +x ./steward-${{ matrix.platform.target }}
-    - run: ./steward-${{ matrix.platform.target }} --help
-
-  test-oci:
-    needs: build-native
-    strategy:
-      matrix:
-        platform:
-        - host: ubuntu-20.04
-          target: x86_64-unknown-linux-musl
-    runs-on: ${{ matrix.platform.host }}
-    steps:
-    - uses: actions/download-artifact@v3
-      with:
-        name: steward-${{ matrix.platform.target }}-oci
-    - run: docker load < steward-${{ matrix.platform.target }}-oci
-    # TODO: Attempt to run `steward --help` within the loaded container
+    - run: ${{ matrix.platform.test-oci }}
 
   release:
+    needs: build
     permissions:
       contents: write
     if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
-    needs: [ build-native, build-wasm, test-bin, test-oci ]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/download-artifact@v3
       with:
         name: steward-wasm32-wasi
-
+    - uses: actions/download-artifact@v3
+      with:
+        name: steward-wasm32-wasi-oci
     - uses: actions/download-artifact@v3
       with:
         name: steward-x86_64-unknown-linux-musl
@@ -116,5 +84,6 @@ jobs:
         prerelease: true
         files: |
           steward-wasm32-wasi
+          steward-wasm32-wasi-oci
           steward-x86_64-unknown-linux-musl
           steward-x86_64-unknown-linux-musl-oci
