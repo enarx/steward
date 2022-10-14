@@ -4,7 +4,7 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2.4.0
+    - uses: actions/checkout@v3
     - name: Setup Rust toolchain
       run: rustup show
     - name: cargo fmt
@@ -23,8 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: cachix/install-nix-action@v17
-    - uses: cachix/cachix-action@v10
+    - uses: cachix/install-nix-action@v18
+    - uses: cachix/cachix-action@v11
       with:
         name: enarx
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
@@ -35,10 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-    - uses: cachix/install-nix-action@v17
-    - uses: cachix/cachix-action@v10
+    - uses: cachix/install-nix-action@v18
+    - uses: cachix/cachix-action@v11
       with:
         name: enarx
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-    - name: nix flake check
-      run: nix flake check -L --keep-going --show-trace
+    - run: nix flake check -L --show-trace --keep-going
