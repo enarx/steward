@@ -567,21 +567,19 @@ mod tests {
         use cryptography::ext::CertReqInfoExt;
         use cryptography::x509::attr::Attribute;
         use cryptography::x509::request::{CertReq, CertReqInfo, ExtensionReq};
-        #[cfg(feature = "insecure")]
         use cryptography::x509::PkiPath;
         use cryptography::x509::{ext::Extension, name::RdnSequence};
         use der::{AnyRef, Encode};
-        use kvm::Kvm;
         #[cfg(feature = "insecure")]
         use sgx_validation::Sgx;
         #[cfg(feature = "insecure")]
         use snp_validation::{Evidence, Snp};
 
-        #[cfg(feature = "insecure")]
         use axum::response::Response;
         use http::header::CONTENT_TYPE;
         use http::Request;
         use hyper::Body;
+        #[cfg(feature = "insecure")]
         use rstest::rstest;
         use tower::ServiceExt; // for `app.oneshot()`
 
@@ -647,7 +645,6 @@ mod tests {
             }
         }
 
-        #[cfg(feature = "insecure")]
         async fn attest_response(state: State, response: Response, multi: bool) {
             let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
 
@@ -778,6 +775,22 @@ mod tests {
             assert_eq!(output.issued.len(), five_crs.len());
         }
 
+        #[tokio::test]
+        async fn sgx_canned_csr() {
+            let csr = include_bytes!("../crates/sgx_validation/src/icelake.csr");
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(Bytes::from(csr.as_slice())))
+                .unwrap();
+
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            attest_response(certificates_state(), response, false).await;
+        }
+
         #[cfg(feature = "insecure")]
         #[rstest]
         #[case(PKCS10, false)]
@@ -837,6 +850,22 @@ mod tests {
                 assert_eq!(response.status(), StatusCode::OK);
                 attest_response(state, response, multi).await;
             }
+        }
+
+        #[tokio::test]
+        async fn snp_canned_csr() {
+            let csr = include_bytes!("../crates/snp_validation/src/milan.csr");
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(Bytes::from(csr.as_slice())))
+                .unwrap();
+
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            attest_response(certificates_state(), response, false).await;
         }
 
         #[cfg(feature = "insecure")]
