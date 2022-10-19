@@ -21,17 +21,23 @@ jobs:
       matrix:
         platform:
         - host: ubuntu-latest
-          target: x86_64-unknown-linux-musl
-          test-bin: ./result/bin/steward --help
-          test-oci: |
-            docker load < ./result
-            docker run --rm steward:$(nix eval --raw .#steward-x86_64-unknown-linux-musl-oci.imageTag) steward --help
+          target: aarch64-unknown-linux-musl
+          test-bin: nix shell --inputs-from . 'nixpkgs#qemu' -c qemu-aarch64 ./result/bin/steward --help
+          test-oci: docker load < ./result
+          # TODO: Run the aarch64 binary within OCI
 
         - host: ubuntu-latest
           target: wasm32-wasi
           test-bin: nix run --inputs-from . 'nixpkgs#wasmtime' ./result/bin/steward -- --help
           test-oci: docker load < ./result
           # TODO: Execute the WASM binary within OCI
+
+        - host: ubuntu-latest
+          target: x86_64-unknown-linux-musl
+          test-bin: ./result/bin/steward --help
+          test-oci: |
+            docker load < ./result
+            docker run --rm steward:$(nix eval --raw .#steward-x86_64-unknown-linux-musl-oci.imageTag) steward --help
 
     runs-on: ${{ matrix.platform.host }}
     steps:
@@ -67,6 +73,12 @@ jobs:
     steps:
     - uses: actions/download-artifact@v3
       with:
+        name: steward-aarch64-unknown-linux-musl
+    - uses: actions/download-artifact@v3
+      with:
+        name: steward-aarch64-unknown-linux-musl-oci
+    - uses: actions/download-artifact@v3
+      with:
         name: steward-wasm32-wasi
     - uses: actions/download-artifact@v3
       with:
@@ -83,6 +95,8 @@ jobs:
         draft: true
         prerelease: true
         files: |
+          steward-aarch64-unknown-linux-musl
+          steward-aarch64-unknown-linux-musl-oci
           steward-wasm32-wasi
           steward-wasm32-wasi-oci
           steward-x86_64-unknown-linux-musl

@@ -3,6 +3,7 @@ channel = "stable"
 components = [ "rustfmt", "clippy" ]
 profile = "minimal"
 targets = [
+    "aarch64-unknown-linux-musl",
     "wasm32-wasi",
     "x86_64-unknown-linux-musl",
 ]
