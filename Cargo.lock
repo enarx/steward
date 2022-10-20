@@ -231,6 +231,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cryptography"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "const-oid",
+ "der",
+ "p256",
+ "p384",
+ "rand",
+ "rsa",
+ "rustls-pemfile",
+ "sec1",
+ "sha2",
+ "signature",
+ "spki",
+ "x509-cert",
+ "zeroize",
+]
+
+[[package]]
 name = "der"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -990,6 +1010,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sgx_validation"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "cryptography",
+ "der",
+ "sgx",
+ "testaso",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1037,6 +1068,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a507befe795404456341dfab10cef66ead4c041f62b8b11bbb92bffe5d0953e0"
 
 [[package]]
+name = "snp_validation"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "cryptography",
+ "der",
+ "flagset",
+ "testaso",
+]
+
+[[package]]
 name = "socket2"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1071,24 +1113,17 @@ dependencies = [
  "base64",
  "clap",
  "confargs",
- "const-oid",
+ "cryptography",
  "der",
  "flagset",
  "http",
  "hyper",
  "memoffset",
  "mime",
- "p256",
- "p384",
- "rand",
- "rsa",
  "rstest",
- "rustls-pemfile",
- "sec1",
  "sgx",
- "sha2",
- "signature",
- "spki",
+ "sgx_validation",
+ "snp_validation",
  "testaso",
  "tokio",
  "tower",
@@ -1096,7 +1131,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "x509-cert",
  "zeroize",
 ]
 

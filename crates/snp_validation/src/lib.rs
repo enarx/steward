@@ -1,24 +1,21 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use crate::crypto::*;
+use cryptography::ext::*;
 
 use std::{fmt::Debug, mem::size_of};
 
 use anyhow::{anyhow, Context, Result};
-
-use const_oid::db::rfc5912::ECDSA_WITH_SHA_384;
-use const_oid::ObjectIdentifier;
+use cryptography::const_oid::db::rfc5912::ECDSA_WITH_SHA_384;
+use cryptography::const_oid::ObjectIdentifier;
+use cryptography::sec1::pkcs8::AlgorithmIdentifier;
+use cryptography::sha2::{Digest, Sha384};
+use cryptography::x509::ext::Extension;
+use cryptography::x509::{request::CertReqInfo, Certificate};
+use cryptography::x509::{PkiPath, TbsCertificate};
 use der::asn1::UIntRef;
 use der::{Decode, Encode, Sequence};
 use flagset::{flags, FlagSet};
-use sec1::pkcs8::AlgorithmIdentifier;
-use sha2::Digest;
-use x509::ext::Extension;
-use x509::{request::CertReqInfo, Certificate};
-use x509::{PkiPath, TbsCertificate};
-
-use super::ExtVerifier;
 
 #[derive(Clone, Debug, PartialEq, Eq, Sequence)]
 pub struct Evidence<'a> {
@@ -216,6 +213,9 @@ impl Snp {
         include_bytes!("genoa.pkipath"),
     ];
 
+    pub const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.58270.1.3");
+    pub const ATT: bool = true;
+
     // This ensures that the supplied vcek is rooted in one of our trusted chains.
     fn is_trusted<'c>(&self, vcek: &'c Certificate<'c>) -> Result<&'c TbsCertificate<'c>> {
         for root in Self::ROOTS {
@@ -235,13 +235,8 @@ impl Snp {
 
         Err(anyhow!("snp vcek is untrusted"))
     }
-}
 
-impl ExtVerifier for Snp {
-    const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.58270.1.3");
-    const ATT: bool = true;
-
-    fn verify(&self, cri: &CertReqInfo<'_>, ext: &Extension<'_>, dbg: bool) -> Result<bool> {
+    pub fn verify(&self, cri: &CertReqInfo<'_>, ext: &Extension<'_>, dbg: bool) -> Result<bool> {
         if ext.critical {
             return Err(anyhow!("snp extension cannot be critical"));
         }
@@ -254,7 +249,7 @@ impl ExtVerifier for Snp {
 
         // Force certs to have the same key type as the VCEK.
         //
-        // A note about this check is in order. We don't want to build crypto
+        // A note about this check is in order. We don't want to build ext
         // algorithm negotiation into this protocol. Not only is it complex
         // but it is also subject to downgrade attacks. For example, if the
         // weakest link in the certificate chain is a P384 key and the
@@ -374,7 +369,7 @@ impl ExtVerifier for Snp {
 
         if !dbg {
             // Validate that the certification request came from an SNP VM.
-            let hash = sha2::Sha384::digest(&cri.public_key.to_vec()?);
+            let hash = Sha384::digest(&cri.public_key.to_vec()?);
             if hash.as_slice() != &report.body.report_data[..hash.as_slice().len()] {
                 return Err(anyhow!("snp report.report_data is invalid"));
             }

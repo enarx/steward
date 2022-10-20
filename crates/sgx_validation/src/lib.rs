@@ -3,18 +3,17 @@
 
 mod quote;
 
-use super::ExtVerifier;
-use crate::crypto::*;
+use cryptography::ext::*;
 use quote::traits::ParseBytes;
 
 use std::fmt::Debug;
 
 use anyhow::{anyhow, Result};
-use const_oid::ObjectIdentifier;
+use cryptography::const_oid::ObjectIdentifier;
+use cryptography::sha2::{Digest, Sha256};
+use cryptography::x509::{ext::Extension, request::CertReqInfo, Certificate, TbsCertificate};
 use der::{Decode, Encode};
 use sgx::parameters::{Attributes, MiscSelect};
-use sha2::{Digest, Sha256};
-use x509::{ext::Extension, request::CertReqInfo, Certificate, TbsCertificate};
 
 #[derive(Clone, Debug)]
 pub struct Sgx([Certificate<'static>; 1]);
@@ -27,6 +26,8 @@ impl Default for Sgx {
 
 impl Sgx {
     const ROOT: &'static [u8] = include_bytes!("root.der");
+    pub const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.58270.1.2");
+    pub const ATT: bool = true;
 
     fn trusted<'c>(&'c self, chain: &'c [Certificate<'c>]) -> Result<&'c TbsCertificate<'c>> {
         let mut signer = &self.0[0].tbs_certificate;
@@ -36,13 +37,8 @@ impl Sgx {
 
         Ok(signer)
     }
-}
 
-impl ExtVerifier for Sgx {
-    const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.58270.1.2");
-    const ATT: bool = true;
-
-    fn verify(&self, cri: &CertReqInfo<'_>, ext: &Extension<'_>, dbg: bool) -> Result<bool> {
+    pub fn verify(&self, cri: &CertReqInfo<'_>, ext: &Extension<'_>, dbg: bool) -> Result<bool> {
         if ext.critical {
             return Err(anyhow!("sgx extension cannot be critical"));
         }

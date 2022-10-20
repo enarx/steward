@@ -15,15 +15,16 @@ pub mod es256;
 pub mod qe;
 pub mod traits;
 
-use crate::crypto::TbsCertificateExt;
+use anyhow::anyhow;
 use body::Body;
+use cryptography::ext::TbsCertificateExt;
 use traits::{FromBytes, ParseBytes, Steal};
 
+use cryptography::p256::ecdsa::signature::Verifier;
+use cryptography::sha2::{digest::DynDigest, Sha256};
+use cryptography::x509::TbsCertificate;
 use der::Encode;
-use p256::ecdsa::signature::Verifier;
 use sgx::ReportBody;
-use sha2::{digest::DynDigest, Sha256};
-use x509::TbsCertificate;
 
 pub struct Quote<'a> {
     body: &'a Body,
@@ -71,7 +72,7 @@ impl<'a> Quote<'a> {
 
         // Validate the Attestation Key.
         let mut data = [0u8; 64];
-        let mut hash = <Sha256 as sha2::Digest>::new();
+        let mut hash = <Sha256 as cryptography::sha2::Digest>::new();
         hash.update(self.sign.key.as_ref());
         hash.update(self.sign.iqe.auth.as_ref());
         hash.finalize_into(&mut data[..32])?;
@@ -80,8 +81,8 @@ impl<'a> Quote<'a> {
         }
 
         // Verify the signature on the enclave report.
-        let vkey = p256::ecdsa::VerifyingKey::from_sec1_bytes(self.sign.key.sec1())?;
-        let sig = p256::ecdsa::Signature::from_der(&self.sign.sig.to_vec()?)?;
+        let vkey = cryptography::p256::ecdsa::VerifyingKey::from_sec1_bytes(self.sign.key.sec1())?;
+        let sig = cryptography::p256::ecdsa::Signature::from_der(&self.sign.sig.to_vec()?)?;
         vkey.verify(self.body.as_ref(), &sig)?;
 
         // Verify the PCE security version.
