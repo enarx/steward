@@ -46,7 +46,7 @@ tokio = { version = "^1.21.2", features = ["rt-multi-thread", "macros"], default
 tower = { version = "^0.4.11", features = ["util"], default-features = false }
 axum = { version = "^0.5.16", default-features = false }
 http = { version = "^0.2.6", default-features = false }
-memoffset = { version = "0.6.4", default-features = false }
+memoffset = { version = "0.7.1", default-features = false }
 rstest = { version = "0.15", default-features = false }
 testaso = { version = "0.1", default-features = false }
 
