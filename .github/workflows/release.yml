@@ -64,6 +64,19 @@ jobs:
         path: steward-${{ matrix.platform.target }}-oci
     - run: ${{ matrix.platform.test-oci }}
 
+  test:
+    needs: build
+    strategy:
+      matrix:
+        host: [ ubuntu-latest ]
+    runs-on: ${{ matrix.host }}
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: steward-x86_64-unknown-linux-musl
+    - run: chmod +x ./steward-x86_64-unknown-linux-musl
+    - run: ./steward-x86_64-unknown-linux-musl --help
+
   release:
     needs: build
     permissions:
