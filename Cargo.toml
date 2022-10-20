@@ -33,7 +33,7 @@ clap = { version = "^4.0.17", features = ["std", "derive", "env"], default-featu
 hyper = { git = "https://github.com/rjzak/hyper", branch = "wasi_wip", features = ["http1", "server"], default-features = false }
 tokio = { version = "^1.21.2", features = ["rt", "macros"], default-features = false }
 uuid = { version = "^0.8.2", features = ["v4"], default-features = false }
-tracing = { version = "^0.1.29", default-features = false }
+tracing = { version = "^0.1.37", default-features = false }
 anyhow = { version = "^1.0.55", default-features = false }
 base64 = { version = "^0.13.0", default-features = false }
 mime = { version = "^0.3.16", default-features = false }
