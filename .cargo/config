@@ -1,3 +1,3 @@
 [target.wasm32-wasi]
 rustflags = ["--cfg", "tokio_unstable"]
-runner = ["enarx", "run", "--wasmcfgfile", "Enarx.toml"]
+runner = ["wasmtime"]
