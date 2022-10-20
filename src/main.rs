@@ -5,11 +5,12 @@
 
 #[macro_use]
 extern crate anyhow;
+mod kvm;
 
-mod crypto;
-mod ext;
-
-use crypto::*;
+use cryptography::ext::{CertReqExt, PrivateKeyInfoExt, TbsCertificateExt};
+use kvm::Kvm;
+use sgx_validation::Sgx;
+use snp_validation::Snp;
 
 use std::io::BufRead;
 use std::net::IpAddr;
@@ -26,33 +27,31 @@ use axum::routing::{get, post};
 use axum::Router;
 use clap::Parser;
 use confargs::{prefix_char_filter, Toml};
-use const_oid::db::rfc5280::{
+use cryptography::const_oid::db::rfc5280::{
     ID_CE_BASIC_CONSTRAINTS, ID_CE_EXT_KEY_USAGE, ID_CE_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME,
     ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH,
 };
-use const_oid::db::rfc5912::ID_EXTENSION_REQ;
+use cryptography::const_oid::db::rfc5912::ID_EXTENSION_REQ;
+use cryptography::rustls_pemfile;
+use cryptography::sec1::pkcs8::PrivateKeyInfo;
+use cryptography::x509::attr::Attribute;
+use cryptography::x509::ext::pkix::name::GeneralName;
+use cryptography::x509::ext::pkix::{
+    BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages, SubjectAltName,
+};
+use cryptography::x509::name::RdnSequence;
+use cryptography::x509::request::{CertReq, ExtensionReq};
+use cryptography::x509::time::{Time, Validity};
+use cryptography::x509::{Certificate, TbsCertificate};
 use der::asn1::{GeneralizedTime, Ia5StringRef, UIntRef};
 use der::{Decode, Encode, Sequence};
-use ext::kvm::Kvm;
-use ext::sgx::Sgx;
-use ext::snp::Snp;
-use ext::ExtVerifier;
 use hyper::StatusCode;
-use rustls_pemfile::Item;
-use sec1::pkcs8::PrivateKeyInfo;
 use tower_http::trace::{
     DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse,
     TraceLayer,
 };
 use tower_http::LatencyUnit;
 use tracing::{debug, Level};
-use x509::attr::Attribute;
-use x509::ext::pkix::name::GeneralName;
-use x509::ext::pkix::{BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages, SubjectAltName};
-use x509::name::RdnSequence;
-use x509::request::{CertReq, ExtensionReq};
-use x509::time::{Time, Validity};
-use x509::{Certificate, TbsCertificate};
 use zeroize::Zeroizing;
 
 const PKCS10: &str = "application/pkcs10";
@@ -130,12 +129,12 @@ impl State {
         mut crt: impl BufRead,
     ) -> anyhow::Result<Self> {
         let key = match rustls_pemfile::read_one(&mut key)? {
-            Some(Item::PKCS8Key(buf)) => Zeroizing::new(buf),
+            Some(rustls_pemfile::Item::PKCS8Key(buf)) => Zeroizing::new(buf),
             _ => return Err(anyhow!("invalid key file")),
         };
 
         let crt = match rustls_pemfile::read_one(&mut crt)? {
-            Some(Item::X509Certificate(buf)) => buf,
+            Some(rustls_pemfile::Item::X509Certificate(buf)) => buf,
             _ => return Err(anyhow!("invalid key file")),
         };
 
@@ -147,7 +146,7 @@ impl State {
     }
 
     pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
-        use const_oid::db::rfc5912::SECP_256_R_1 as P256;
+        use cryptography::const_oid::db::rfc5912::SECP_256_R_1 as P256;
 
         // Generate the private key.
         let key = PrivateKeyInfo::generate(P256)?;
@@ -175,7 +174,7 @@ impl State {
 
         // Create the certificate body.
         let tbs = TbsCertificate {
-            version: x509::Version::V3,
+            version: cryptography::x509::Version::V3,
             serial_number: UIntRef::new(&[0u8])?,
             signature: pki.signs_with()?,
             issuer: rdns.clone(),
@@ -185,12 +184,12 @@ impl State {
             issuer_unique_id: None,
             subject_unique_id: None,
             extensions: Some(vec![
-                x509::ext::Extension {
+                cryptography::x509::ext::Extension {
                     extn_id: ID_CE_KEY_USAGE,
                     critical: true,
                     extn_value: &ku,
                 },
-                x509::ext::Extension {
+                cryptography::x509::ext::Extension {
                     extn_id: ID_CE_BASIC_CONSTRAINTS,
                     critical: true,
                     extn_value: &bc,
@@ -364,7 +363,7 @@ fn attest_request(
 
     // Add Subject Alternative Name
     let sans: Vec<u8> = sans.to_vec().or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
-    extensions.push(x509::ext::Extension {
+    extensions.push(cryptography::x509::ext::Extension {
         extn_id: ID_CE_SUBJECT_ALT_NAME,
         critical: false,
         extn_value: &sans,
@@ -374,7 +373,7 @@ fn attest_request(
     let eku = ExtendedKeyUsage(vec![ID_KP_SERVER_AUTH, ID_KP_CLIENT_AUTH])
         .to_vec()
         .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
-    extensions.push(x509::ext::Extension {
+    extensions.push(cryptography::x509::ext::Extension {
         extn_id: ID_CE_EXT_KEY_USAGE,
         critical: false,
         extn_value: &eku,
@@ -390,7 +389,7 @@ fn attest_request(
 
     // Create and sign the new certificate.
     TbsCertificate {
-        version: x509::Version::V3,
+        version: cryptography::x509::Version::V3,
         serial_number,
         signature,
         issuer: issuer.tbs_certificate.subject.clone(),
@@ -471,15 +470,18 @@ async fn attest(
 #[cfg(test)]
 mod tests {
     mod attest {
-        use crate::ext::{kvm::Kvm, sgx::Sgx, snp::Snp, ExtVerifier};
         use crate::*;
-        use const_oid::db::rfc5912::{ID_EXTENSION_REQ, SECP_256_R_1, SECP_384_R_1};
-        use const_oid::ObjectIdentifier;
+        use cryptography::const_oid::db::rfc5912::{ID_EXTENSION_REQ, SECP_256_R_1, SECP_384_R_1};
+        use cryptography::const_oid::ObjectIdentifier;
+        use cryptography::ext::CertReqInfoExt;
+        use cryptography::x509::attr::Attribute;
+        use cryptography::x509::request::{CertReq, CertReqInfo, ExtensionReq};
+        use cryptography::x509::PkiPath;
+        use cryptography::x509::{ext::Extension, name::RdnSequence};
         use der::{AnyRef, Encode};
-        use x509::attr::Attribute;
-        use x509::request::{CertReq, CertReqInfo, ExtensionReq};
-        use x509::PkiPath;
-        use x509::{ext::Extension, name::RdnSequence};
+        use kvm::Kvm;
+        use sgx_validation::Sgx;
+        use snp_validation::{Evidence, Snp};
 
         use axum::response::Response;
         use http::header::CONTENT_TYPE;
@@ -519,7 +521,7 @@ mod tests {
 
             // Create a certification request information structure.
             let cri = CertReqInfo {
-                version: x509::request::Version::V1,
+                version: cryptography::x509::request::Version::V1,
                 attributes: vec![att].try_into().unwrap(),
                 subject: RdnSequence::default(),
                 public_key: spki,
@@ -664,8 +666,8 @@ mod tests {
         #[tokio::test]
         async fn sgx_certs(#[case] header: &str, #[case] multi: bool) {
             for quote in [
-                include_bytes!("ext/sgx/quote.unknown").as_slice(),
-                include_bytes!("ext/sgx/quote.icelake").as_slice(),
+                include_bytes!("../crates/sgx_validation/src/quote.unknown").as_slice(),
+                include_bytes!("../crates/sgx_validation/src/quote.icelake").as_slice(),
             ] {
                 let ext = Extension {
                     extn_id: Sgx::OID,
@@ -692,8 +694,8 @@ mod tests {
         #[tokio::test]
         async fn sgx_hostname(#[case] header: &str, #[case] multi: bool) {
             for quote in [
-                include_bytes!("ext/sgx/quote.unknown").as_slice(),
-                include_bytes!("ext/sgx/quote.icelake").as_slice(),
+                include_bytes!("../crates/sgx_validation/src/quote.unknown").as_slice(),
+                include_bytes!("../crates/sgx_validation/src/quote.icelake").as_slice(),
             ] {
                 let ext = Extension {
                     extn_id: Sgx::OID,
@@ -720,9 +722,12 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn snp_certs(#[case] header: &str, #[case] multi: bool) {
-            let evidence = ext::snp::Evidence {
-                vcek: Certificate::from_der(include_bytes!("ext/snp/milan.vcek")).unwrap(),
-                report: include_bytes!("ext/snp/milan.rprt"),
+            let evidence = Evidence {
+                vcek: Certificate::from_der(include_bytes!(
+                    "../crates/snp_validation/src/milan.vcek"
+                ))
+                .unwrap(),
+                report: include_bytes!("../crates/snp_validation/src/milan.rprt"),
             }
             .to_vec()
             .unwrap();
@@ -750,9 +755,12 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn snp_hostname(#[case] header: &str, #[case] multi: bool) {
-            let evidence = ext::snp::Evidence {
-                vcek: Certificate::from_der(include_bytes!("ext/snp/milan.vcek")).unwrap(),
-                report: include_bytes!("ext/snp/milan.rprt"),
+            let evidence = Evidence {
+                vcek: Certificate::from_der(include_bytes!(
+                    "../crates/snp_validation/src/milan.vcek"
+                ))
+                .unwrap(),
+                report: include_bytes!("../crates/snp_validation/src/milan.rprt"),
             }
             .to_vec()
             .unwrap();

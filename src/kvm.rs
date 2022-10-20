@@ -2,10 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use anyhow::{anyhow, Result};
-use const_oid::ObjectIdentifier;
-use x509::{ext::Extension, request::CertReqInfo};
-
-use super::ExtVerifier;
+use cryptography::const_oid::ObjectIdentifier;
+use cryptography::x509::{ext::Extension, request::CertReqInfo};
 
 /// An extension validator for KVM evidence.
 ///
@@ -15,11 +13,16 @@ use super::ExtVerifier;
 #[derive(Clone, Debug, Default)]
 pub struct Kvm(());
 
-impl ExtVerifier for Kvm {
-    const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.58270.1.1");
-    const ATT: bool = true;
+impl Kvm {
+    pub(crate) const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.58270.1.1");
+    pub(crate) const ATT: bool = true;
 
-    fn verify(&self, _cri: &CertReqInfo<'_>, ext: &Extension<'_>, dbg: bool) -> Result<bool> {
+    pub(crate) fn verify(
+        &self,
+        _cri: &CertReqInfo<'_>,
+        ext: &Extension<'_>,
+        dbg: bool,
+    ) -> Result<bool> {
         if ext.critical {
             return Err(anyhow!("kvm extension cannot be critical"));
         }

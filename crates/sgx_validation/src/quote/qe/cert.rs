@@ -3,6 +3,8 @@
 
 use super::super::{FromBytes, ParseBytes, Steal};
 
+use anyhow::anyhow;
+
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum Data {
@@ -23,7 +25,7 @@ impl<'a> FromBytes<'a> for Data {
                     .map_err(|e| anyhow!("invalid certification data: {}", e))?
                     .replace("-----END CERTIFICATE-----", "-----END CERTIFICATE-----\n");
 
-                let mut certs = rustls_pemfile::certs(&mut chain.as_bytes())
+                let mut certs = cryptography::rustls_pemfile::certs(&mut chain.as_bytes())
                     .map_err(|e| anyhow!("invalid certification data: {}", e))?;
 
                 certs.reverse();

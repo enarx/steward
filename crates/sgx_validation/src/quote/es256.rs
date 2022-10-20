@@ -3,9 +3,9 @@
 
 use super::{qe::QuotingEnclave, FromBytes, ParseBytes};
 
-use std::array::TryFromSliceError;
-
+use anyhow::anyhow;
 use der::{asn1::UIntRef, Sequence};
+use std::array::TryFromSliceError;
 
 #[derive(Clone, Debug)]
 #[repr(C)]
