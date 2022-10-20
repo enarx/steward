@@ -66,24 +66,24 @@ const BUNDLE: &str = "application/vnd.steward.pkcs10-bundle.v1";
 /// The configuration file must contain valid TOML table mapping argument
 /// names to their values.
 #[derive(Clone, Debug, Parser)]
-#[clap(author, version, about)]
+#[command(author, version, about)]
 struct Args {
-    #[clap(short, long, env = "STEWARD_KEY")]
+    #[arg(short, long, env = "STEWARD_KEY")]
     key: Option<PathBuf>,
 
-    #[clap(short, long, env = "STEWARD_CRT")]
+    #[arg(short, long, env = "STEWARD_CRT")]
     crt: Option<PathBuf>,
 
-    #[clap(short, long, env = "ROCKET_PORT", default_value = "3000")]
+    #[arg(short, long, env = "ROCKET_PORT", default_value = "3000")]
     port: u16,
 
-    #[clap(short, long, env = "ROCKET_ADDRESS", default_value = "::")]
+    #[arg(short, long, env = "ROCKET_ADDRESS", default_value = "::")]
     addr: IpAddr,
 
-    #[clap(short, long, env = "RENDER_EXTERNAL_HOSTNAME")]
+    #[arg(long, env = "RENDER_EXTERNAL_HOSTNAME")]
     host: Option<String>,
 
-    #[clap(long, env = "STEWARD_SAN")]
+    #[arg(long, env = "STEWARD_SAN")]
     san: Option<String>,
 }
 
