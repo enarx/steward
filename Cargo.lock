@@ -79,9 +79,9 @@ checksum = "349a06037c7bf932dd7e7d1f653678b2038b9ad46a74102f1fc7bd7872678cce"
 
 [[package]]
 name = "base64"
-version = "0.13.0"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
+checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "base64ct"
@@ -479,7 +479,7 @@ checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
 [[package]]
 name = "hyper"
 version = "0.14.20"
-source = "git+https://github.com/rjzak/hyper?branch=wasi_wip#7baf23da590823380ebae40efd77033fa601f514"
+source = "git+https://github.com/rjzak/hyper?branch=wasi_wip#093e4ece9255b50768fc58bf66c616c2ea726532"
 dependencies = [
  "bytes",
  "futures-channel",
