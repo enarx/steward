@@ -80,6 +80,48 @@ jobs:
     - run: chmod +x ./steward-x86_64-unknown-linux-musl
     - run: ./steward-x86_64-unknown-linux-musl --help
 
+  push_oci:
+    needs: build
+    permissions:
+      actions: read
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: steward-aarch64-unknown-linux-musl-oci
+    - uses: actions/download-artifact@v3
+      with:
+        name: steward-x86_64-unknown-linux-musl-oci
+    - run: skopeo copy docker-archive:./steward-aarch64-unknown-linux-musl-oci containers-storage:localhost/steward:aarch64
+    - run: skopeo copy docker-archive:./steward-x86_64-unknown-linux-musl-oci containers-storage:localhost/steward:x86_64
+    - run: podman image ls
+    - run: podman manifest create steward:manifest
+    - run: podman manifest add steward:manifest containers-storage:localhost/steward:aarch64 --arch=arm64
+    - run: podman manifest add steward:manifest containers-storage:localhost/steward:x86_64 --arch=amd64
+    - run: podman manifest inspect steward:manifest
+    - name: metadata
+      id: metadata
+      uses: docker/metadata-action@v4
+      with:
+        images: ghcr.io/profianinc/steward
+        tags: |
+          type=ref,event=branch
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+        sep-tags: " "
+    - name: add tags
+      if: github.event_name == 'push'
+      run: podman tag steward:manifest ${{ steps.metadata.outputs.tags }}
+    - name: push to GitHub Packages
+      if: github.event_name == 'push'
+      uses: redhat-actions/push-to-registry@v2
+      with:
+        tags: ${{ steps.metadata.outputs.tags }}
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
   release:
     needs: build
     permissions:
