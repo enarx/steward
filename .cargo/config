@@ -1,3 +1,5 @@
 [target.wasm32-wasi]
 rustflags = ["--cfg", "tokio_unstable"]
-runner = ["enarx", "run", "--wasmcfgfile", "Enarx.toml"]
+runner = ["wasmtime", "run", "--env", "FD_COUNT=4", "--tcplisten", "0.0.0.0:3000", "--"]
+# Put this back when Enarx is able to receive TCP configuation from the command line.
+# runner = ["enarx", "run", "--wasmcfgfile", "Enarx.toml"]
