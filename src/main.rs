@@ -791,6 +791,22 @@ mod tests {
             attest_response(certificates_state(), response, false).await;
         }
 
+        #[tokio::test]
+        async fn sgx_canned_csr_signed() {
+            let csr = include_bytes!("../crates/sgx_validation/src/icelake_signed.csr");
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(Bytes::from(csr.as_slice())))
+                .unwrap();
+
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            attest_response(certificates_state(), response, false).await;
+        }
+
         #[cfg(feature = "insecure")]
         #[rstest]
         #[case(PKCS10, false)]
@@ -855,6 +871,22 @@ mod tests {
         #[tokio::test]
         async fn snp_canned_csr() {
             let csr = include_bytes!("../crates/snp_validation/src/milan.csr");
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(Bytes::from(csr.as_slice())))
+                .unwrap();
+
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            attest_response(certificates_state(), response, false).await;
+        }
+
+        #[tokio::test]
+        async fn snp_canned_csr_signed() {
+            let csr = include_bytes!("../crates/snp_validation/src/milan_signed.csr");
 
             let request = Request::builder()
                 .method("POST")
