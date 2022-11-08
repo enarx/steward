@@ -243,6 +243,7 @@ dependencies = [
  "rsa",
  "rustls-pemfile",
  "sec1",
+ "serde",
  "sha2",
  "signature",
  "spki",
@@ -446,6 +447,12 @@ checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hmac"
@@ -981,12 +988,29 @@ name = "semver"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e25dfac463d778e353db5be2449d1cce89bd6fd23c9f1ea21310ce6e5a1b29c4"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "serde"
 version = "1.0.145"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "728eb6351430bccb993660dfffc5a72f91ccc1295abaa8ce19b27ebe4f75568b"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.145"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81fa1584d3d1bcacd84c277a0dfe21f5b0f6accf4a23d04d4c6d61f1af522b4c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "serde_json"
@@ -1017,8 +1041,11 @@ dependencies = [
  "anyhow",
  "cryptography",
  "der",
+ "serde",
  "sgx",
  "testaso",
+ "toml",
+ "validation_common",
 ]
 
 [[package]]
@@ -1076,7 +1103,11 @@ dependencies = [
  "cryptography",
  "der",
  "flagset",
+ "semver",
+ "serde",
  "testaso",
+ "toml",
+ "validation_common",
 ]
 
 [[package]]
@@ -1122,16 +1153,19 @@ dependencies = [
  "memoffset",
  "mime",
  "rstest",
+ "serde",
  "sgx",
  "sgx_validation",
  "snp_validation",
  "testaso",
  "tokio",
+ "toml",
  "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "validation_common",
  "zeroize",
 ]
 
@@ -1352,6 +1386,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "422ee0de9031b5b948b97a8fc04e3aa35230001a722ddd27943e0be31564ce4c"
 dependencies = [
  "getrandom",
+]
+
+[[package]]
+name = "validation_common"
+version = "0.2.0"
+dependencies = [
+ "hex",
+ "serde",
+ "toml",
 ]
 
 [[package]]

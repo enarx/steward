@@ -1,0 +1,14 @@
+[sgx]
+signer = ["c8dc9fe36caaeef871e6512c481092754c57c2ea999f128282ccb563d1602774"]
+hash = ["e106565074be5ef3897711472617a0a000bae5c577f69a42202e3f76a07980f3"]
+features = ["Debug", "ProvisioningKey", "EInitKey", "KSS"]
+enclave_security_version = 0
+enclave_product_id = 0
+
+[snp]
+signer = ["5b2181f5e2294fa0709d22b3f85d9d88b287b897c6b7289004802b53bbf09bc50f5469f98a6d6718d5f9c918d3d3c16f"]
+id_key_digest = ["966a25a22ee44283aa51bfb3682c990fd9e0a7457c5f60f4ac4eb5c41715478c4b206b0e01dc11aae8628f5aa29e0560"]
+hash = ["6ff9ac4c61adc4cd2d86264230afc386358a5b41221dd236de92a3b45cb8a590bf719388994711ab9fe2b192bebc18a2"]
+abi = ">=1.51"
+policy_flags = ["SMT"]
+platform_info_flags = "SME"

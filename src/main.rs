@@ -46,6 +46,7 @@ use cryptography::x509::{Certificate, TbsCertificate};
 use der::asn1::{GeneralizedTime, Ia5StringRef, UIntRef};
 use der::{Decode, Encode, Sequence};
 use hyper::StatusCode;
+use serde::Deserialize;
 use tower_http::trace::{
     DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse,
     TraceLayer,
@@ -84,6 +85,15 @@ struct Args {
 
     #[arg(long, env = "STEWARD_SAN")]
     san: Option<String>,
+
+    #[arg(long)]
+    config: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Debug, Default, Eq, PartialEq)]
+struct Config {
+    sgx: Option<sgx_validation::config::Config>,
+    snp: Option<snp_validation::config::Config>,
 }
 
 #[derive(Debug)]
@@ -92,6 +102,7 @@ struct State {
     key: Zeroizing<Vec<u8>>,
     crt: Vec<u8>,
     san: Option<String>,
+    config: Config,
 }
 
 /// ASN.1
@@ -113,6 +124,7 @@ impl State {
         san: Option<String>,
         key: impl AsRef<Path>,
         crt: impl AsRef<Path>,
+        config: Option<String>,
     ) -> anyhow::Result<Self> {
         // Load the key file.
         let key = std::io::BufReader::new(std::fs::File::open(key)?);
@@ -120,13 +132,14 @@ impl State {
         // Load the crt file.
         let crt = std::io::BufReader::new(std::fs::File::open(crt)?);
 
-        Self::read(san, key, crt)
+        Self::read(san, key, crt, config)
     }
 
     pub fn read(
         san: Option<String>,
         mut key: impl BufRead,
         mut crt: impl BufRead,
+        config: Option<String>,
     ) -> anyhow::Result<Self> {
         let key = match rustls_pemfile::read_one(&mut key)? {
             Some(rustls_pemfile::Item::PKCS8Key(buf)) => Zeroizing::new(buf),
@@ -142,7 +155,19 @@ impl State {
         PrivateKeyInfo::from_der(key.as_ref())?;
         Certificate::from_der(crt.as_ref())?;
 
-        Ok(State { crt, san, key })
+        let config = if let Some(path) = config {
+            let config = std::fs::read_to_string(path).context("failed to read config file")?;
+            toml::from_str(&config).context("failed to parse config")?
+        } else {
+            Config::default()
+        };
+
+        Ok(State {
+            crt,
+            san,
+            key,
+            config,
+        })
     }
 
     pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
@@ -199,7 +224,12 @@ impl State {
 
         // Self-sign the certificate.
         let crt = tbs.sign(&pki)?;
-        Ok(Self { key, crt, san })
+        Ok(Self {
+            key,
+            crt,
+            san,
+            config: Default::default(),
+        })
     }
 }
 
@@ -220,7 +250,7 @@ async fn main() -> anyhow::Result<()> {
         .map(Args::parse_from)?;
     let state = match (args.key, args.crt, args.host) {
         (None, None, Some(host)) => State::generate(args.san, &host)?,
-        (Some(key), Some(crt), _) => State::load(args.san, key, crt)?,
+        (Some(key), Some(crt), _) => State::load(args.san, key, crt, args.config)?,
         _ => {
             eprintln!("Either:\n* Specify the public key `--crt` and private key `--key`, or\n* Specify the host `--host`.\n\nRun with `--help` for more information.");
             return Err(anyhow!("invalid configuration"));
@@ -309,6 +339,7 @@ fn attest_request(
     sans: SubjectAltName<'_>,
     cr: CertReq<'_>,
     validity: &Validity,
+    state: &State,
 ) -> Result<Vec<u8>, StatusCode> {
     let info = cr.verify().map_err(|e| {
         debug!("failed to verify certificate info: {e}");
@@ -336,8 +367,14 @@ fn attest_request(
                 // Validate the extension.
                 let (copy, att) = match ext.extn_id {
                     Kvm::OID => (Kvm::default().verify(&info, &ext, dbg), Kvm::ATT),
-                    Sgx::OID => (Sgx::default().verify(&info, &ext, dbg), Sgx::ATT),
-                    Snp::OID => (Snp::default().verify(&info, &ext, dbg), Snp::ATT),
+                    Sgx::OID => (
+                        Sgx::default().verify(&info, &ext, state.config.sgx.as_ref(), dbg),
+                        Sgx::ATT,
+                    ),
+                    Snp::OID => (
+                        Snp::default().verify(&info, &ext, state.config.snp.as_ref(), dbg),
+                        Snp::ATT,
+                    ),
                     oid => {
                         debug!("extension `{oid}` is unsupported");
                         return Err(StatusCode::BAD_REQUEST);
@@ -445,7 +482,14 @@ async fn attest(
                 let name = Ia5StringRef::new(name).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
                 sans.push(GeneralName::DnsName(name));
             }
-            attest_request(&issuer, &isskey, SubjectAltName(sans), cr, &validity)
+            attest_request(
+                &issuer,
+                &isskey,
+                SubjectAltName(sans),
+                cr,
+                &validity,
+                &state,
+            )
         })
         .collect::<Result<Vec<_>, _>>()
         .and_then(|issued| {
@@ -492,14 +536,14 @@ mod tests {
 
         fn certificates_state() -> State {
             #[cfg(not(target_os = "wasi"))]
-            return State::load(None, "testdata/ca.key", "testdata/ca.crt")
+            return State::load(None, "testdata/ca.key", "testdata/ca.crt", None)
                 .expect("failed to load state");
             #[cfg(target_os = "wasi")]
             {
                 let crt = std::io::BufReader::new(include_bytes!("../testdata/ca.crt").as_slice());
                 let key = std::io::BufReader::new(include_bytes!("../testdata/ca.key").as_slice());
 
-                State::read(None, key, crt).expect("failed to load state")
+                State::read(None, key, crt, None).expect("failed to load state")
             }
         }
 
@@ -867,6 +911,233 @@ mod tests {
 
             let response = app(certificates_state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+    }
+
+    // Unit tests for configuration
+    mod config {
+        use crate::Config;
+        use cryptography::x509::attr::Attribute;
+        use cryptography::x509::request::{CertReq, ExtensionReq};
+        use cryptography::x509::Certificate;
+        use der::Decode;
+        use sgx::parameters::MiscSelect;
+        use sgx_validation::quote::traits::ParseBytes;
+        use sgx_validation::quote::Quote;
+        use snp_validation::{Evidence, PolicyFlags, Report, Snp};
+        use std::collections::HashSet;
+        use validation_common::{Digest, Measurements};
+
+        const DEFAULT_CONFIG: &str = include_str!("../testdata/steward.toml");
+        const ICELAKE_CSR: &[u8] =
+            include_bytes!("../crates/sgx_validation/src/icelake.signed.csr");
+        const MILAN_CSR: &[u8] = include_bytes!("../crates/snp_validation/src/milan.signed.csr");
+
+        fn assert_sgx_config(
+            csr: &CertReq<'_>,
+            conf: &sgx_validation::config::Config,
+        ) -> anyhow::Result<()> {
+            let sgx = sgx_validation::Sgx::default();
+
+            #[allow(unused_variables)]
+            for Attribute { oid, values } in csr.info.attributes.iter() {
+                for any in values.iter() {
+                    let ereq: ExtensionReq<'_> = any.decode_into()?;
+                    for ext in Vec::from(ereq) {
+                        let (quote, bytes): (Quote<'_>, _) = ext.extn_value.parse()?;
+                        let chain = quote.chain()?;
+                        let chain = chain
+                            .iter()
+                            .map(|c| Certificate::from_der(c))
+                            .collect::<Result<Vec<_>, _>>()?;
+
+                        // Validate the report.
+                        let pck = sgx.trusted(&chain)?;
+                        let report = quote.verify(pck)?;
+                        sgx.verify(&csr.info, &ext, Some(conf), false)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        fn assert_snp_config(
+            csr: &CertReq<'_>,
+            conf: &snp_validation::config::Config,
+        ) -> anyhow::Result<()> {
+            let snp = Snp::default();
+            #[allow(unused_variables)]
+            for Attribute { oid, values } in csr.info.attributes.iter() {
+                for any in values.iter() {
+                    let ereq: ExtensionReq<'_> = any.decode_into()?;
+                    for ext in Vec::from(ereq) {
+                        let evidence = Evidence::from_der(ext.extn_value)?;
+                        let array = evidence.report.try_into()?;
+                        let report = Report::cast(array);
+                        snp.verify(&csr.info, &ext, Some(conf), false)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn test_config_empty() {
+            let config: Config = toml::from_str("").expect("Couldn't deserialize");
+
+            assert!(config.sgx.is_none());
+            assert!(config.snp.is_none());
+        }
+
+        #[test]
+        fn test_config() {
+            let config: Config = toml::from_str(
+                r#"
+            [snp]
+            policy_flags = ["SingleSocket", "Debug", "SMT"]
+            signer = ["e368c18e60842db9325778532dd81594d732078bf01aa91686be40333da639e08733b910bd057bdda50d715968b075ce"]
+            abi = ">1.0"
+            
+            [sgx]
+            signer = ["2eba0f494f428e799c22d6f12778aebea4dc8d991f9e63fd3cddd57ac6eb5dd9"]
+            "#,
+            )
+            .expect("Couldn't deserialize");
+
+            let snp = snp_validation::config::Config {
+                measurements: Measurements {
+                    signer: HashSet::from([Digest([
+                        0xe3, 0x68, 0xc1, 0x8e, 0x60, 0x84, 0x2d, 0xb9, 0x32, 0x57, 0x78, 0x53,
+                        0x2d, 0xd8, 0x15, 0x94, 0xd7, 0x32, 0x07, 0x8b, 0xf0, 0x1a, 0xa9, 0x16,
+                        0x86, 0xbe, 0x40, 0x33, 0x3d, 0xa6, 0x39, 0xe0, 0x87, 0x33, 0xb9, 0x10,
+                        0xbd, 0x05, 0x7b, 0xdd, 0xa5, 0x0d, 0x71, 0x59, 0x68, 0xb0, 0x75, 0xce,
+                    ])]),
+                    hash: Default::default(),
+                    hash_blacklist: Default::default(),
+                },
+                id_key_digest: Default::default(),
+                id_key_digest_blacklist: Default::default(),
+                abi: ">1.0".parse().unwrap(),
+                policy_flags: Some(
+                    (PolicyFlags::Reserved
+                        | PolicyFlags::SingleSocket
+                        | PolicyFlags::Debug
+                        | PolicyFlags::SMT)
+                        .bits(),
+                ),
+                platform_info_flags: None,
+            };
+
+            let sgx = sgx_validation::config::Config {
+                measurements: Measurements {
+                    signer: HashSet::from([Digest([
+                        0x2e, 0xba, 0x0f, 0x49, 0x4f, 0x42, 0x8e, 0x79, 0x9c, 0x22, 0xd6, 0xf1,
+                        0x27, 0x78, 0xae, 0xbe, 0xa4, 0xdc, 0x8d, 0x99, 0x1f, 0x9e, 0x63, 0xfd,
+                        0x3c, 0xdd, 0xd5, 0x7a, 0xc6, 0xeb, 0x5d, 0xd9,
+                    ])]),
+                    hash: Default::default(),
+                    hash_blacklist: Default::default(),
+                },
+                features: Default::default(),
+                enclave_security_version: None,
+                enclave_product_id: None,
+                misc_select: MiscSelect::default(),
+            };
+
+            let steward = Config {
+                sgx: Some(sgx),
+                snp: Some(snp),
+            };
+
+            assert_eq!(config, steward);
+        }
+
+        #[test]
+        fn test_sgx_signed_canned_csr() {
+            let csr = CertReq::from_der(ICELAKE_CSR).unwrap();
+            let config: Config = toml::from_str(DEFAULT_CONFIG).expect("Couldn't deserialize");
+            assert_sgx_config(&csr, &config.sgx.unwrap()).unwrap();
+        }
+
+        #[test]
+        fn test_sgx_signed_csr_bad_config_signer() {
+            let csr = CertReq::from_der(ICELAKE_CSR).unwrap();
+            let config: Config = toml::from_str(
+                r#"
+            [sgx]
+            signer = ["2eba0f494f428e799c22d6f12778aebea4dc8d991f9e63fd3cddd57ac6eb5dd9"]
+            "#,
+            )
+            .expect("Couldn't deserialize");
+
+            assert!(assert_sgx_config(&csr, &config.sgx.unwrap()).is_err());
+        }
+
+        #[test]
+        fn test_sgx_signed_csr_bad_config_enclave_version() {
+            let csr = CertReq::from_der(ICELAKE_CSR).unwrap();
+            let config: Config = toml::from_str(
+                r#"
+            [sgx]
+            signer = ["c8dc9fe36caaeef871e6512c481092754c57c2ea999f128282ccb563d1602774"]
+            enclave_security_version = 9999
+            "#,
+            )
+            .expect("Couldn't deserialize");
+
+            assert!(assert_sgx_config(&csr, &config.sgx.unwrap()).is_err());
+        }
+
+        #[test]
+        fn test_snp_signed_canned_csr() {
+            let csr = CertReq::from_der(MILAN_CSR).unwrap();
+            let config: Config = toml::from_str(DEFAULT_CONFIG).expect("Couldn't deserialize");
+            assert!(assert_snp_config(&csr, &config.snp.unwrap()).is_ok());
+        }
+
+        #[test]
+        fn test_snp_signed_canned_csr_bad_author_key() {
+            let csr = CertReq::from_der(MILAN_CSR).unwrap();
+
+            let config: Config = toml::from_str(
+                r#"
+            [snp]
+            policy_flags = ["SingleSocket", "Debug"]
+            signer = ["e368c18e60842db9325778532dd81594d732078bf01aa91686be40333da639e08733b910bd057bdda50d715968b075ce"]
+            "#,
+            )
+            .expect("Couldn't deserialize");
+
+            assert!(assert_snp_config(&csr, &config.snp.unwrap()).is_err());
+        }
+
+        #[test]
+        fn test_snp_signed_canned_csr_bad_abi_version() {
+            let csr = CertReq::from_der(MILAN_CSR).unwrap();
+
+            let config: Config = toml::from_str(
+                r#"
+            [snp]
+            signer = ["5b2181f5e2294fa0709d22b3f85d9d88b287b897c6b7289004802b53bbf09bc50f5469f98a6d6718d5f9c918d3d3c16f"]
+            abi = ">254.0"
+            "#,
+            )
+            .expect("Couldn't deserialize");
+
+            assert!(assert_snp_config(&csr, &config.snp.unwrap()).is_err());
+        }
+
+        #[test]
+        fn test_snp_signed_canned_csr_blacklisted_id_key() {
+            let csr = CertReq::from_der(MILAN_CSR).unwrap();
+
+            let config: Config = toml::from_str(r#"
+            [snp]
+            signer = ["5b2181f5e2294fa0709d22b3f85d9d88b287b897c6b7289004802b53bbf09bc50f5469f98a6d6718d5f9c918d3d3c16f"]
+            id_key_digest_blacklist = ["966a25a22ee44283aa51bfb3682c990fd9e0a7457c5f60f4ac4eb5c41715478c4b206b0e01dc11aae8628f5aa29e0560"]
+            "#).expect("Couldn't deserialize");
+
+            assert!(assert_snp_config(&csr, &config.snp.unwrap()).is_err());
         }
     }
 }

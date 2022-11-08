@@ -30,16 +30,20 @@ anyhow = { version = "^1.0.66", default-features = false }
 base64 = { version = "^0.13.1", default-features = false }
 mime = { version = "^0.3.16", default-features = false }
 confargs = { version = "^0.1.3", default-features = false }
+serde = { version = "1.0", features = ["derive"], default-features = false }
+toml = { version = "0.5", default-features = false }
 
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
 tokio = { version = "^1.23.0", features = ["rt-multi-thread", "macros"], default-features = false }
 
 [dev-dependencies]
+validation_common = { path = "crates/validation_common" }
 tower = { version = "^0.4.11", features = ["util"], default-features = false }
 axum = { version = "^0.5.17", default-features = false }
 http = { version = "^0.2.6", default-features = false }
 memoffset = { version = "0.7.1", default-features = false }
 rstest = { version = "0.16", default-features = false }
+sgx = { version = "0.6.0", default-features = false }
 testaso = { version = "0.1", default-features = false }
 
 [profile.release]
@@ -51,7 +55,8 @@ strip = true
 [workspace]
 resolver = '2'
 members = [
+    'crates/cryptography',
     'crates/sgx_validation',
     'crates/snp_validation',
-    'crates/cryptography',
+    'crates/validation_common',
 ]

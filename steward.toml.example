@@ -1,0 +1,36 @@
+# The configuration is separated by technology, Intel's SGX and AMD's SNP.
+
+# For both, `signer`, `hash`, and `hash_blacklist` refer to Enarx running in a Keep.
+# Signer is the public key which signed the Enarx binary.
+# Hash is the hash of the Keep's memory with Enarx, but before a workload. This isn't the hash of the binary itself.
+# Hash_blacklist is the hash of Enarx that is to be denied.
+# At a minimum, one of these MUST be specified.
+# All of these values are a list of the hashes. SGX uses SHA-256, SNP uses SHA-384. Hash lengths are enforced.
+
+[snp]
+signer = [""]
+hash = [""]
+hash_blacklist = [""]
+
+# Additional SGX features which may be required. Missing are `INIT` and `MODE64BIT`, since they are required. Optional.
+features = ["ProvisioningKey", "EInitKey", "KSS"]
+
+# Minimum Enclave security versions to accept, optional.
+enclave_security_version = 0
+
+# The required Enclave product ID to require, optional.
+enclave_product_id = 0
+
+[sgx]
+signer = [""]
+hash = [""]
+hash_blacklist = [""]
+
+# The minimum abi version to require, optional.
+abi = ">=1.51"
+
+# SNP policy flags to require, optional.
+policy_flags = ["SMT"]
+
+# Platform Info flags to require, currently either SME or TSME. Optional.
+platform_info_flags = "SME"
