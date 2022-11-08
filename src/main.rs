@@ -46,6 +46,7 @@ use cryptography::x509::{Certificate, TbsCertificate};
 use der::asn1::{GeneralizedTime, Ia5StringRef, UIntRef};
 use der::{Decode, Encode, Sequence};
 use hyper::StatusCode;
+use serde::{Deserialize, Serialize};
 use tower_http::trace::{
     DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse,
     TraceLayer,
@@ -84,6 +85,18 @@ struct Args {
 
     #[arg(long, env = "STEWARD_SAN")]
     san: Option<String>,
+
+    #[arg(long)]
+    config: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Debug, Default, Serialize)]
+struct ConfigurationFile {
+    #[serde(rename = "sgx")]
+    sgx_config: Option<sgx_validation::config::Config>,
+
+    #[serde(rename = "snp")]
+    snp_config: Option<snp_validation::config::Config>,
 }
 
 #[derive(Debug)]
@@ -92,6 +105,7 @@ struct State {
     key: Zeroizing<Vec<u8>>,
     crt: Vec<u8>,
     san: Option<String>,
+    config: ConfigurationFile,
 }
 
 /// ASN.1
@@ -113,6 +127,7 @@ impl State {
         san: Option<String>,
         key: impl AsRef<Path>,
         crt: impl AsRef<Path>,
+        config: Option<String>,
     ) -> anyhow::Result<Self> {
         // Load the key file.
         let key = std::io::BufReader::new(std::fs::File::open(key)?);
@@ -120,13 +135,14 @@ impl State {
         // Load the crt file.
         let crt = std::io::BufReader::new(std::fs::File::open(crt)?);
 
-        Self::read(san, key, crt)
+        Self::read(san, key, crt, config)
     }
 
     pub fn read(
         san: Option<String>,
         mut key: impl BufRead,
         mut crt: impl BufRead,
+        config: Option<String>,
     ) -> anyhow::Result<Self> {
         let key = match rustls_pemfile::read_one(&mut key)? {
             Some(rustls_pemfile::Item::PKCS8Key(buf)) => Zeroizing::new(buf),
@@ -142,7 +158,17 @@ impl State {
         PrivateKeyInfo::from_der(key.as_ref())?;
         Certificate::from_der(crt.as_ref())?;
 
-        Ok(State { crt, san, key })
+        let config_obj = match config {
+            Some(c) => toml::from_str(&std::fs::read_to_string(Path::new(&c))?)?,
+            None => ConfigurationFile::default(),
+        };
+
+        Ok(State {
+            crt,
+            san,
+            key,
+            config: config_obj,
+        })
     }
 
     pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
@@ -199,7 +225,12 @@ impl State {
 
         // Self-sign the certificate.
         let crt = tbs.sign(&pki)?;
-        Ok(Self { key, crt, san })
+        Ok(Self {
+            key,
+            crt,
+            san,
+            config: ConfigurationFile::default(),
+        })
     }
 }
 
@@ -220,7 +251,7 @@ async fn main() -> anyhow::Result<()> {
         .map(Args::parse_from)?;
     let state = match (args.key, args.crt, args.host) {
         (None, None, Some(host)) => State::generate(args.san, &host)?,
-        (Some(key), Some(crt), _) => State::load(args.san, key, crt)?,
+        (Some(key), Some(crt), _) => State::load(args.san, key, crt, args.config)?,
         _ => {
             eprintln!("Either:\n* Specify the public key `--crt` and private key `--key`, or\n* Specify the host `--host`.\n\nRun with `--help` for more information.");
             return Err(anyhow!("invalid configuration"));
@@ -309,6 +340,7 @@ fn attest_request(
     sans: SubjectAltName<'_>,
     cr: CertReq<'_>,
     validity: &Validity,
+    state: &State,
 ) -> Result<Vec<u8>, StatusCode> {
     let info = cr.verify().map_err(|e| {
         debug!("failed to verify certificate info: {e}");
@@ -336,8 +368,14 @@ fn attest_request(
                 // Validate the extension.
                 let (copy, att) = match ext.extn_id {
                     Kvm::OID => (Kvm::default().verify(&info, &ext, dbg), Kvm::ATT),
-                    Sgx::OID => (Sgx::default().verify(&info, &ext, dbg), Sgx::ATT),
-                    Snp::OID => (Snp::default().verify(&info, &ext, dbg), Snp::ATT),
+                    Sgx::OID => (
+                        Sgx::default().verify(&info, &ext, state.config.sgx_config.as_ref(), dbg),
+                        Sgx::ATT,
+                    ),
+                    Snp::OID => (
+                        Snp::default().verify(&info, &ext, state.config.snp_config.as_ref(), dbg),
+                        Snp::ATT,
+                    ),
                     oid => {
                         debug!("extension `{oid}` is unsupported");
                         return Err(StatusCode::BAD_REQUEST);
@@ -445,7 +483,14 @@ async fn attest(
                 let name = Ia5StringRef::new(name).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
                 sans.push(GeneralName::DnsName(name));
             }
-            attest_request(&issuer, &isskey, SubjectAltName(sans), cr, &validity)
+            attest_request(
+                &issuer,
+                &isskey,
+                SubjectAltName(sans),
+                cr,
+                &validity,
+                &state,
+            )
         })
         .collect::<Result<Vec<_>, _>>()
         .and_then(|issued| {
@@ -492,14 +537,14 @@ mod tests {
 
         fn certificates_state() -> State {
             #[cfg(not(target_os = "wasi"))]
-            return State::load(None, "testdata/ca.key", "testdata/ca.crt")
+            return State::load(None, "testdata/ca.key", "testdata/ca.crt", None)
                 .expect("failed to load state");
             #[cfg(target_os = "wasi")]
             {
                 let crt = std::io::BufReader::new(include_bytes!("../testdata/ca.crt").as_slice());
                 let key = std::io::BufReader::new(include_bytes!("../testdata/ca.key").as_slice());
 
-                State::read(None, key, crt).expect("failed to load state")
+                State::read(None, key, crt, None).expect("failed to load state")
             }
         }
 
@@ -867,6 +912,275 @@ mod tests {
 
             let response = app(certificates_state()).oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+    }
+
+    mod config {
+        use crate::ConfigurationFile;
+        use cryptography::x509::attr::Attribute;
+        use cryptography::x509::request::{CertReq, ExtensionReq};
+        use cryptography::x509::Certificate;
+        use der::Decode;
+        use sgx_validation::quote::traits::ParseBytes;
+        use sgx_validation::quote::Quote;
+        use snp_validation::Report;
+        use snp_validation::{Evidence, Snp};
+
+        const STEWARD_CONFIG: &str = include_str!("../testdata/steward.toml");
+        const ICELAKE_CSR: &[u8] =
+            include_bytes!("../crates/sgx_validation/src/icelake.signed.csr");
+        const MILAN_CSR: &[u8] = include_bytes!("../crates/snp_validation/src/milan.signed.csr");
+
+        fn validate_sgx_config(
+            csr: &CertReq<'_>,
+            conf: &sgx_validation::config::Config,
+        ) -> anyhow::Result<()> {
+            let sgx = sgx_validation::Sgx::default();
+
+            #[allow(unused_variables)]
+            for Attribute { oid, values } in csr.info.attributes.iter() {
+                for any in values.iter() {
+                    let ereq: ExtensionReq<'_> = any.decode_into()?;
+                    for ext in Vec::from(ereq) {
+                        let (quote, bytes): (Quote<'_>, _) = ext.extn_value.parse()?;
+                        let chain = quote.chain()?;
+                        let chain = chain
+                            .iter()
+                            .map(|c| Certificate::from_der(c))
+                            .collect::<Result<Vec<_>, _>>()?;
+
+                        // Validate the report.
+                        let pck = sgx.trusted(&chain)?;
+                        let report = quote.verify(pck)?;
+                        sgx.verify(&csr.info, &ext, Some(conf), false)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        fn validate_snp_config(
+            csr: &CertReq<'_>,
+            conf: &snp_validation::config::Config,
+        ) -> anyhow::Result<()> {
+            let snp = Snp::default();
+            #[allow(unused_variables)]
+            for Attribute { oid, values } in csr.info.attributes.iter() {
+                for any in values.iter() {
+                    let ereq: ExtensionReq<'_> = any.decode_into()?;
+                    for ext in Vec::from(ereq) {
+                        let evidence = Evidence::from_der(ext.extn_value)?;
+                        let array = evidence.report.try_into()?;
+                        let report = Report::cast(array);
+                        snp.verify(&csr.info, &ext, Some(conf), false)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn test_config_empty() {
+            let config_raw = r#"
+            "#;
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            assert!(config_obj.sgx_config.is_none());
+            assert!(config_obj.snp_config.is_none());
+        }
+
+        #[test]
+        fn test_config() {
+            let config_raw = r#"
+            [snp]
+            policy_flags = "SingleSocket | Debug"
+            enarx_signer = ["1234567890", "00112233445566778899"]
+            minimum_abi = "1.0"
+            
+            [sgx]
+            enarx_signer = ["1234567890", "00112233445566778899"]
+            "#;
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            assert!(config_obj.sgx_config.is_some());
+            assert!(config_obj.snp_config.is_some());
+            assert_eq!(config_obj.sgx_config.unwrap().enarx_signer.len(), 2);
+        }
+
+        #[test]
+        fn test_sgx_signed_canned_csr() {
+            let csr_object = CertReq::from_der(ICELAKE_CSR).unwrap();
+            let config_obj: ConfigurationFile =
+                toml::from_str(STEWARD_CONFIG).expect("Couldn't deserialize");
+            validate_sgx_config(&csr_object, &config_obj.sgx_config.unwrap()).unwrap();
+        }
+
+        #[test]
+        fn test_sgx_signed_csr_bad_config_signer() {
+            let config_raw = r#"
+            [snp]
+            policy_flags = "SingleSocket | Debug"
+            enarx_signer = ["1234567890", "00112233445566778899"]
+            minimum_abi = "1.0"
+            
+            [sgx]
+            enarx_signer = ["1234567890", "00112233445566778899"]
+            "#;
+
+            let csr_object = CertReq::from_der(ICELAKE_CSR).unwrap();
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            if validate_sgx_config(&csr_object, &config_obj.sgx_config.unwrap()).is_ok() {
+                unreachable!();
+            }
+        }
+
+        #[test]
+        fn test_sgx_signed_csr_bad_config_enclave_version() {
+            let config_raw = r#"
+            [snp]
+            policy_flags = "SingleSocket | Debug"
+            enarx_signer = ["1234567890", "00112233445566778899"]
+            minimum_abi = "1.0"
+            
+            [sgx]
+            enclave_security_version = 9999
+            "#;
+
+            let csr_object = CertReq::from_der(ICELAKE_CSR).unwrap();
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            if validate_sgx_config(&csr_object, &config_obj.sgx_config.unwrap()).is_ok() {
+                unreachable!();
+            }
+        }
+
+        #[test]
+        fn test_sgx_signed_csr_blacklisted_signer() {
+            let config_raw = r#"
+            [sgx]
+            enarx_signer_blacklist = ["c8dc9fe36caaeef871e6512c481092754c57c2ea999f128282ccb563d1602774"]
+            "#;
+
+            let csr_object = CertReq::from_der(ICELAKE_CSR).unwrap();
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            if validate_sgx_config(&csr_object, &config_obj.sgx_config.unwrap()).is_ok() {
+                unreachable!();
+            }
+        }
+
+        #[test]
+        fn test_sgx_signed_csr_blacklisted_hash() {
+            let config_raw = r#"
+            [sgx]
+            enarx_hash_blacklist = ["e106565074be5ef3897711472617a0a000bae5c577f69a42202e3f76a07980f3"]
+            "#;
+
+            let csr_object = CertReq::from_der(ICELAKE_CSR).unwrap();
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            if validate_sgx_config(&csr_object, &config_obj.sgx_config.unwrap()).is_ok() {
+                unreachable!();
+            }
+        }
+
+        #[test]
+        fn test_snp_signed_canned_csr() {
+            let csr_object = CertReq::from_der(MILAN_CSR).unwrap();
+            let config_obj: ConfigurationFile =
+                toml::from_str(STEWARD_CONFIG).expect("Couldn't deserialize");
+            validate_snp_config(&csr_object, &config_obj.snp_config.unwrap()).unwrap();
+        }
+
+        #[test]
+        fn test_snp_signed_canned_csr_bad_author_key() {
+            let csr_object = CertReq::from_der(MILAN_CSR).unwrap();
+
+            let config_raw = r#"
+            [snp]
+            policy_flags = "SingleSocket | Debug"
+            enarx_signer = ["1234567890", "00112233445566778899"]
+            
+            [sgx]
+            enclave_security_version = 9999
+            "#;
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            if validate_snp_config(&csr_object, &config_obj.snp_config.unwrap()).is_ok() {
+                unreachable!();
+            }
+        }
+
+        #[test]
+        fn test_snp_signed_canned_csr_bad_abi_version() {
+            let csr_object = CertReq::from_der(MILAN_CSR).unwrap();
+
+            let config_raw = r#"
+            [snp]
+            minimum_abi = "254.0"
+            "#;
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            if validate_snp_config(&csr_object, &config_obj.snp_config.unwrap()).is_ok() {
+                unreachable!();
+            }
+        }
+
+        #[test]
+        fn test_snp_signed_canned_csr_blacklisted_signer() {
+            let csr_object = CertReq::from_der(MILAN_CSR).unwrap();
+
+            let config_raw = r#"
+            [snp]
+            enarx_signer_blacklist = ["5b2181f5e2294fa0709d22b3f85d9d88b287b897c6b7289004802b53bbf09bc50f5469f98a6d6718d5f9c918d3d3c16f"]
+            "#;
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            if validate_snp_config(&csr_object, &config_obj.snp_config.unwrap()).is_ok() {
+                unreachable!();
+            }
+        }
+
+        #[test]
+        fn test_snp_signed_canned_csr_blacklisted_hash() {
+            let csr_object = CertReq::from_der(MILAN_CSR).unwrap();
+
+            let config_raw = r#"
+            [snp]
+            enarx_hash_blacklist = ["6ff9ac4c61adc4cd2d86264230afc386358a5b41221dd236de92a3b45cb8a590bf719388994711ab9fe2b192bebc18a2"]
+            "#;
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            if validate_snp_config(&csr_object, &config_obj.snp_config.unwrap()).is_ok() {
+                unreachable!();
+            }
+        }
+
+        #[test]
+        fn test_snp_signed_canned_csr_blacklisted_id_key() {
+            let csr_object = CertReq::from_der(MILAN_CSR).unwrap();
+
+            let config_raw = r#"
+            [snp]
+            id_key_digest_blacklist = ["966a25a22ee44283aa51bfb3682c990fd9e0a7457c5f60f4ac4eb5c41715478c4b206b0e01dc11aae8628f5aa29e0560"]
+            "#;
+            let config_obj: ConfigurationFile =
+                toml::from_str(config_raw).expect("Couldn't deserialize");
+
+            if validate_snp_config(&csr_object, &config_obj.snp_config.unwrap()).is_ok() {
+                unreachable!();
+            }
         }
     }
 }

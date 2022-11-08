@@ -1,13 +1,16 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use cryptography::ext::*;
+pub mod config;
+
+use crate::config::Config;
 
 use std::{fmt::Debug, mem::size_of};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use cryptography::const_oid::db::rfc5912::ECDSA_WITH_SHA_384;
 use cryptography::const_oid::ObjectIdentifier;
+use cryptography::ext::TbsCertificateExt;
 use cryptography::sec1::pkcs8::AlgorithmIdentifier;
 use cryptography::sha2::{Digest, Sha384};
 use cryptography::x509::ext::Extension;
@@ -16,6 +19,8 @@ use cryptography::x509::{PkiPath, TbsCertificate};
 use der::asn1::UIntRef;
 use der::{Decode, Encode, Sequence};
 use flagset::{flags, FlagSet};
+use semver::Version;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Sequence)]
 pub struct Evidence<'a> {
@@ -26,6 +31,7 @@ pub struct Evidence<'a> {
 }
 
 flags! {
+    #[derive(Deserialize, Serialize)]
     pub enum PolicyFlags: u8 {
         /// Indicates if only one socket is permitted
         SingleSocket = 1 << 4,
@@ -39,9 +45,13 @@ flags! {
         SMT = 1 << 0,
     }
 
+    /// These items are mutually exclusive
+    #[derive(Deserialize, Serialize)]
     pub enum PlatformInfoFlags: u8 {
-        TSME = 1 << 1,
-        SMT = 1 << 0,
+        /// Secure Memory Encryption
+        SME = 0,
+        /// Transparent Secure Memory Encryption
+        TSME = 1,
     }
 }
 
@@ -58,18 +68,24 @@ pub struct Policy {
     rsvd: [u8; 5],
 }
 
+impl From<Policy> for Version {
+    fn from(value: Policy) -> Self {
+        Version::new(value.abi_major as _, value.abi_minor as _, 0)
+    }
+}
+
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
 pub struct PlatformInfo {
     /// Bit fields indicating enabled features
-    pub flags: FlagSet<PlatformInfoFlags>,
+    pub flag: PlatformInfoFlags,
     /// Reserved
     rsvd: [u8; 7],
 }
 
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
-struct Body {
+pub struct Body {
     /// The version of the attestation report, currently 2
     pub version: u32,
     /// Guest Security Version Number (SVN)
@@ -178,7 +194,7 @@ impl Es384 {
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-union Signature {
+pub union Signature {
     bytes: [u8; 512],
     es384: Es384,
 }
@@ -186,7 +202,7 @@ union Signature {
 /// The attestation report from the trusted environment on an AMD system
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-struct Report {
+pub struct Report {
     pub body: Body,
     pub signature: Signature,
 }
@@ -233,12 +249,18 @@ impl Snp {
             }
         }
 
-        Err(anyhow!("snp vcek is untrusted"))
+        bail!("snp vcek is untrusted")
     }
 
-    pub fn verify(&self, cri: &CertReqInfo<'_>, ext: &Extension<'_>, dbg: bool) -> Result<bool> {
+    pub fn verify(
+        &self,
+        cri: &CertReqInfo<'_>,
+        ext: &Extension<'_>,
+        config: Option<&Config>,
+        dbg: bool,
+    ) -> Result<bool> {
         if ext.critical {
-            return Err(anyhow!("snp extension cannot be critical"));
+            bail!("snp extension cannot be critical");
         }
 
         // Decode the evidence.
@@ -262,7 +284,7 @@ impl Snp {
         //
         // Additionally, we do this check early to be defensive.
         if cri.public_key.algorithm != vcek.subject_public_key_info.algorithm {
-            return Err(anyhow!("snp vcek algorithm mismatch"));
+            bail!("snp vcek algorithm mismatch");
         }
 
         // Extract the report and its signature.
@@ -288,94 +310,144 @@ impl Snp {
 
         // Should only be version 2
         if report.body.version != 2 {
-            return Err(anyhow!("snp report is an unknown version"));
+            bail!("snp report is an unknown version");
         }
 
         // Check policy
         if !report.body.policy.flags.contains(PolicyFlags::Reserved) {
-            return Err(anyhow!("snp guest policy mandatory reserved flag not set"));
+            bail!("snp guest policy mandatory reserved flag not set");
         }
 
         if report.body.policy.flags.contains(PolicyFlags::MigrateMA) {
-            return Err(anyhow!("snp guest policy migration flag was set"));
+            bail!("snp guest policy migration flag was set");
+        }
+
+        if report.body.policy.abi_major > report.body.current_major {
+            bail!("snp policy has higher abi major than firmware");
+        } else if report.body.policy.abi_minor > report.body.current_minor {
+            bail!("snp policy has higher abi minor than firmware");
         }
 
         // Check reserved fields
         if report.body.rsvd1 != 0 || report.body.rsvd3 != 0 || report.body.rsvd4 != 0 {
-            return Err(anyhow!("snp report reserved fields were set"));
+            bail!("snp report reserved fields were set");
         }
 
         for value in report.body.rsvd2 {
-            if value != 0 {
-                return Err(anyhow!("snp report reserved fields were set"));
-            }
+            ensure!(value == 0, "snp report reserved fields were set");
         }
 
         for value in report.body.rsvd5 {
-            if value != 0 {
-                return Err(anyhow!("snp report reserved fields were set"));
-            }
+            ensure!(value == 0, "snp report reserved fields were set");
         }
 
         for value in report.body.policy.rsvd {
-            if value != 0 {
-                return Err(anyhow!("snp report policy reserved fields were set"));
-            }
+            ensure!(value == 0, "snp report policy reserved fields were set");
         }
 
         for value in report.body.plat_info.rsvd {
-            if value != 0 {
-                return Err(anyhow!("snp report platform_info reserved fields were set"));
-            }
+            ensure!(
+                value == 0,
+                "snp report platform_info reserved fields were set"
+            );
         }
 
         // Check fields not set by Enarx
-        for value in report.body.author_key_digest {
-            if value != 0 {
-                return Err(anyhow!(
-                    "snp report author_key_digest field not set by Enarx"
-                ));
-            }
-        }
-
         for value in report.body.host_data {
-            if value != 0 {
-                return Err(anyhow!("snp report host_data field not set by Enarx"));
-            }
+            ensure!(value == 0, "snp report host_data field not set by Enarx");
         }
 
-        for value in report.body.id_key_digest {
-            if value != 0 {
-                return Err(anyhow!("snp report id_key_digest field not set by Enarx"));
-            }
-        }
-
-        if report.body.vmpl != 0 {
-            return Err(anyhow!("snp report vmpl field not set by Enarx"));
-        }
-
-        if report.body.guest_svn != 0 {
-            return Err(anyhow!("snp report guest_svn field not set by Enarx"));
-        }
+        ensure!(
+            report.body.vmpl == 0,
+            "snp report vmpl field not set by Enarx"
+        );
 
         // Check field set by Enarx
         for value in report.body.report_id_ma {
-            if value != 255 {
-                return Err(anyhow!(
-                    "snp report report_id_ma field not the value set by Enarx"
-                ));
+            ensure!(
+                value == 255,
+                "snp report report_id_ma field not the value set by Enarx"
+            );
+        }
+
+        if let Some(config) = config {
+            if !config.minimum_abi.matches(&report.body.policy.into()) {
+                bail!("snp minimum abi not met");
+            }
+
+            if !config.enarx_signer.is_empty() {
+                let mut signed = false;
+                for signer in &config.enarx_signer {
+                    if report.body.author_key_digest == signer.as_ref() {
+                        signed = true;
+                        break;
+                    }
+                }
+                ensure!(signed, "snp untrusted enarx author_key");
+            }
+
+            if !config.enarx_signer_blacklist.is_empty() {
+                for hash in &config.enarx_signer_blacklist {
+                    if report.body.author_key_digest == hash.as_ref() {
+                        bail!("snp untrusted enarx author_key");
+                    }
+                }
+            }
+
+            if !config.id_key_digest.is_empty() {
+                let mut signed = false;
+                for signer in &config.id_key_digest {
+                    if report.body.id_key_digest == signer.as_ref() {
+                        signed = true;
+                        break;
+                    }
+                }
+                ensure!(signed, "snp untrusted enarx id_key");
+            }
+
+            if !config.id_key_digest_blacklist.is_empty() {
+                for signer in &config.id_key_digest_blacklist {
+                    if report.body.id_key_digest == signer.as_ref() {
+                        bail!("snp untrusted enarx id_key");
+                    }
+                }
+            }
+
+            if !config.enarx_hash.is_empty() {
+                let mut allowed = false;
+                for hash in &config.enarx_hash {
+                    if report.body.measurement == hash.as_ref() {
+                        allowed = true;
+                        break;
+                    }
+                }
+                ensure!(allowed, "snp untrusted enarx hash");
+            }
+
+            if !config.enarx_hash_blacklist.is_empty() {
+                for hash in &config.enarx_hash_blacklist {
+                    if report.body.measurement == hash.as_ref() {
+                        bail!("snp untrusted enarx hash");
+                    }
+                }
+            }
+
+            if let Some(flags) = config.platform_info_flags {
+                if flags != report.body.plat_info.flag {
+                    bail!("snp unexpected memory mode");
+                }
             }
         }
 
         if !dbg {
             // Validate that the certification request came from an SNP VM.
-            let hash = Sha384::digest(&cri.public_key.to_vec()?);
+            let hash = Sha384::digest(cri.public_key.to_vec()?);
             if hash.as_slice() != &report.body.report_data[..hash.as_slice().len()] {
-                return Err(anyhow!("snp report.report_data is invalid"));
+                bail!("snp report.report_data is invalid");
             }
 
             if report.body.policy.flags.contains(PolicyFlags::Debug) {
-                return Err(anyhow!("snp guest policy permits debugging"));
+                bail!("snp guest policy permits debugging");
             }
         }
 
