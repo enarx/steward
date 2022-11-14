@@ -21,7 +21,7 @@ sgx = { version = "0.5.0", default-features = false }
 tracing-subscriber = { version="^0.3.15", features = ["env-filter", "json", "fmt"], default-features = false }
 tower-http = { version = "^0.3.0", features = ["trace"], default-features = false }
 axum = { version = "^0.5.17", features = ["headers"], default-features = false }
-clap = { version = "^4.0.22", features = ["help", "usage", "error-context", "std", "derive", "env"], default-features = false }
+clap = { version = "^4.0.23", features = ["help", "usage", "error-context", "std", "derive", "env"], default-features = false }
 hyper = { git = "https://github.com/rjzak/hyper", branch = "wasi_wip", features = ["http1", "server"], default-features = false }
 tokio = { version = "^1.21.2", features = ["rt", "macros"], default-features = false }
 uuid = { version = "^0.8.2", features = ["v4"], default-features = false }
