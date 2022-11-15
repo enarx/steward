@@ -10,7 +10,7 @@ anyhow = { version = "^1.0.55", features = ["std"], default-features = false }
 const-oid = { version = "0.9.1", features = ["db"], default-features = false }
 der = { version = "0.6", features = ["std"], default-features = false }
 rand = { version = "0.8", features = ["std"], default-features = false }
-rsa = {version = "0.7.1", features = ["std"], default-features = false }
+rsa = {version = "0.7.2", features = ["std"], default-features = false }
 rustls-pemfile = {version = "1.0.1", default-features = false }
 sec1 = { version = "0.3", features = ["std", "pkcs8"], default-features = false }
 sha2 = { version = "^0.10.2", default-features = false }
