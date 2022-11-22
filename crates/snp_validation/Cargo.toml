@@ -6,7 +6,7 @@ license = "AGPL-3.0"
 description = "AMD SEV-SNP Attestation validation library for Steward"
 
 [dependencies]
-cryptography = { path = "../cryptography" }
+cryptography = { path = "../cryptography", features = ["crl"] }
 anyhow = { version = "^1.0.55", default-features = false }
 der = { version = "0.6", features = ["std"], default-features = false }
 flagset = { version = "0.4.3", default-features = false }

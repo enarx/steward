@@ -244,12 +244,27 @@ impl Snp {
 
             if let Some(signer) = signer {
                 if signer == &vcek.tbs_certificate {
+                    /*path.first()
+                    .unwrap()
+                    .tbs_certificate
+                    .check_crl(&vcek.tbs_certificate)?;*/
                     return Ok(&vcek.tbs_certificate);
                 }
             }
         }
 
         bail!("snp vcek is untrusted")
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    pub fn fetch_crl() -> Result<()> {
+        for root in Self::ROOTS {
+            let path = PkiPath::from_der(root)?;
+            for p in path {
+                p.tbs_certificate.cache_crl()?;
+            }
+        }
+        Ok(())
     }
 
     pub fn verify(

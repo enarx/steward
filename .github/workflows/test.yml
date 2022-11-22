@@ -5,6 +5,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - name: install ssl-dev
+      run: sudo apt-get -y install libssl-dev libcrypt-dev
     - name: Setup Rust toolchain
       run: rustup show
     - name: cargo test

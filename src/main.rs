@@ -88,6 +88,10 @@ struct Args {
 
     #[arg(long)]
     config: Option<String>,
+
+    #[cfg(not(target_family = "wasm"))]
+    #[arg(long, default_value = "false")]
+    cache_crl: bool,
 }
 
 #[derive(Clone, Deserialize, Debug, Default, Serialize)]
@@ -249,6 +253,14 @@ async fn main() -> anyhow::Result<()> {
     let args = confargs::args::<Toml>(prefix_char_filter::<'@'>)
         .context("Failed to parse config")
         .map(Args::parse_from)?;
+
+    #[cfg(not(target_family = "wasm"))]
+    if args.cache_crl {
+        snp_validation::Snp::fetch_crl()?;
+        sgx_validation::Sgx::fetch_crl()?;
+        return Ok(());
+    }
+
     let state = match (args.key, args.crt, args.host) {
         (None, None, Some(host)) => State::generate(args.san, &host)?,
         (Some(key), Some(crt), _) => State::load(args.san, key, crt, args.config)?,

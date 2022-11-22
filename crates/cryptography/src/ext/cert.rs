@@ -5,12 +5,14 @@ use super::*;
 
 use std::time::SystemTime;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE};
 use der::asn1::BitStringRef;
 use der::{Decode, Encode};
 use sec1::pkcs8::{AlgorithmIdentifier, ObjectIdentifier, PrivateKeyInfo};
-use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
+use x509::crl::CertificateList;
+use x509::ext::pkix::name::{DistributionPointName, GeneralName};
+use x509::ext::pkix::{BasicConstraints, CrlDistributionPoints, KeyUsage, KeyUsages};
 use x509::ext::Extension;
 use x509::{Certificate, TbsCertificate};
 
@@ -56,6 +58,18 @@ pub trait TbsCertificateExt<'a> {
     /// child of the parent certificate. This includes additional field
     /// validation as well as default extension validation.
     fn verify_crt<'r, 'c>(&self, cert: &'r Certificate<'c>) -> Result<&'r TbsCertificate<'c>>;
+
+    /// Parse the `TbsCertificate` and get the URLs for the CRL(s), if any.
+    #[cfg(feature = "crl")]
+    fn get_crl_urls(&self) -> Result<Vec<String>>;
+
+    /// Cache the CRLs named by the appropriate `TbsCertificate` extension.
+    #[cfg(feature = "crl")]
+    fn cache_crl(&self) -> Result<()>;
+
+    /// Checks that a `TbsCertificate` has not been revoked.
+    #[cfg(feature = "crl")]
+    fn check_crl(&self, cert: &TbsCertificate) -> Result<()>;
 }
 
 impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
@@ -127,7 +141,10 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
                 // Ensure we are allowed to sign with this certificate.
                 ID_CE_KEY_USAGE => {
                     let ku = KeyUsage::from_der(ext.extn_value)?;
-                    if !ku.0.contains(KeyUsages::DigitalSignature) {
+                    if !ku
+                        .0
+                        .contains(KeyUsages::DigitalSignature /*| KeyUsages::CRLSign*/)
+                    {
                         return Err(anyhow!("not allowed to sign documents"));
                     }
 
@@ -201,5 +218,80 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
         })?;
 
         Ok(&cert.tbs_certificate)
+    }
+
+    #[cfg(feature = "crl")]
+    fn get_crl_urls(&self) -> Result<Vec<String>> {
+        const CRL_EXTN: ObjectIdentifier = const_oid::db::rfc5912::ID_CE_CRL_DISTRIBUTION_POINTS;
+        let mut urls_vec: Vec<String> = Vec::new();
+
+        if let Some(extensions) = self.extensions.as_ref() {
+            for ext in extensions.iter() {
+                if ext.extn_id == CRL_EXTN {
+                    let urls = CrlDistributionPoints::from_der(ext.extn_value)?;
+                    for url in urls.0 {
+                        if let Some(dist_pt) = url.distribution_point {
+                            match dist_pt {
+                                DistributionPointName::FullName(names) => {
+                                    for name in names {
+                                        match name {
+                                            GeneralName::UniformResourceIdentifier(uri) => {
+                                                urls_vec.push(uri.to_string());
+                                            }
+                                            x => {
+                                                bail!("unsupported {:?}", x);
+                                            }
+                                        }
+                                    }
+                                }
+                                x => {
+                                    bail!("unsupported {:?}", x);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(urls_vec)
+    }
+
+    #[cfg(feature = "crl")]
+    #[cfg(not(target_family = "wasm"))]
+    fn cache_crl(&self) -> Result<()> {
+        for url in self.get_crl_urls()? {
+            fetch_cache_crl(&url)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "crl")]
+    #[cfg(target_family = "wasm")]
+    fn cache_crl(&self) -> Result<()> {
+        bail!("Wasi cannot check CRL")
+    }
+
+    #[cfg(feature = "crl")]
+    fn check_crl(&self, cert: &TbsCertificate) -> Result<()> {
+        for url in self.get_crl_urls()? {
+            let crl_contents = fetch_crl(&url)?;
+            let crl = CertificateList::from_der(&crl_contents)?;
+            self.verify_raw(
+                &crl.tbs_cert_list.to_vec()?,
+                crl.signature_algorithm,
+                crl.signature.raw_bytes(),
+            )?;
+
+            if let Some(revoked_certs) = crl.tbs_cert_list.revoked_certificates {
+                for revoked_cert in revoked_certs {
+                    if revoked_cert.serial_number == cert.serial_number {
+                        bail!("revoked");
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }

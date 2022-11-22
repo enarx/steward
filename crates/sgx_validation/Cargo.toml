@@ -6,7 +6,7 @@ license = "AGPL-3.0"
 description = "Intel SGX Attestation validation library for Steward"
 
 [dependencies]
-cryptography = { path = "../cryptography" }
+cryptography = { path = "../cryptography", features = ["crl"] }
 anyhow = { version = "^1.0.55", default-features = false }
 der = { version = "0.6", features = ["std"], default-features = false }
 hex = { version = "0.4", features = ["alloc"], default-features = false }

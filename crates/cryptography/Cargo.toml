@@ -9,6 +9,8 @@ description = "Cryptography library for Steward"
 anyhow = { version = "^1.0.55", features = ["std"], default-features = false }
 const-oid = { version = "0.9.1", features = ["db"], default-features = false }
 der = { version = "0.6", features = ["std"], default-features = false }
+futures = { version = "0.3.25", features = ["executor"], default-features = false, optional = true }
+hex = { version = "0.4.3", features = ["alloc"], default-features = false }
 rand = { version = "0.8", features = ["std"], default-features = false }
 rsa = {version = "0.7.2", features = ["std"], default-features = false }
 rustls-pemfile = {version = "1.0.1", default-features = false }
@@ -22,5 +24,14 @@ p384 = { version = "0.11", features = ["ecdsa", "std", "pem"], default-features 
 x509 = { version = "0.1", features = ["std"], package = "x509-cert", default-features = false }
 zeroize = { version = "^1.5.2", features = ["alloc"], default-features = false }
 
+[target.'cfg(not(target_os = "wasi"))'.dependencies]
+hyper-tls = { version = "0.5.0", default-features = false, optional = true }
+http = { version = "^0.2.6", default-features = false, optional = true }
+hyper = { git = "https://github.com/rjzak/hyper", branch = "wasi_wip", features = ["http1", "client"], default-features = false, optional = true }
+
 [dev-dependencies]
 toml = { version = "0.5", default-features = false }
+
+[features]
+default = []
+crl = ["http", "hyper", "hyper-tls", "futures"]

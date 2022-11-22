@@ -12,6 +12,8 @@ use std::fmt::Debug;
 use crate::config::Config;
 use anyhow::{bail, ensure, Result};
 use cryptography::const_oid::ObjectIdentifier;
+#[cfg(not(target_family = "wasm"))]
+use cryptography::ext::fetch_cache_crl;
 use cryptography::sha2::{Digest, Sha256};
 use cryptography::x509::{ext::Extension, request::CertReqInfo, Certificate, TbsCertificate};
 use der::{Decode, Encode};
@@ -28,16 +30,33 @@ impl Default for Sgx {
 
 impl Sgx {
     const ROOT: &'static [u8] = include_bytes!("root.der");
+    #[cfg(not(target_family = "wasm"))]
+    const PROCESSOR_CRL_URL: &'static str =
+        "https://api.trustedservices.intel.com/sgx/certification/v4/pckcrl?ca=processor&encoding=der";
+    #[cfg(not(target_family = "wasm"))]
+    const PLATFORM_CRL_URL: &'static str =
+        "https://api.trustedservices.intel.com/sgx/certification/v4/pckcrl?ca=platform&encoding=der";
     pub const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.58270.1.2");
     pub const ATT: bool = true;
 
     pub fn trusted<'c>(&'c self, chain: &'c [Certificate<'c>]) -> Result<&'c TbsCertificate<'c>> {
         let mut signer = &self.0[0].tbs_certificate;
+        //let root = signer;
         for cert in self.0.iter().chain(chain.iter()) {
+            //root.check_crl(&cert.tbs_certificate)?;
             signer = signer.verify_crt(cert)?;
         }
 
         Ok(signer)
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    pub fn fetch_crl() -> Result<()> {
+        let cert = Certificate::from_der(Self::ROOT)?;
+        cert.tbs_certificate.cache_crl()?;
+        fetch_cache_crl(Self::PROCESSOR_CRL_URL)?;
+        fetch_cache_crl(Self::PLATFORM_CRL_URL)?;
+        Ok(())
     }
 
     pub fn verify(
