@@ -1,19 +1,65 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+use crate::ext::TbsCertificateExt;
 use crate::sha2::{Digest, Sha256};
-#[cfg(target_family = "wasm")]
 use anyhow::bail;
 use anyhow::{ensure, Context, Result};
 #[cfg(not(target_family = "wasm"))]
 use hyper::Client;
 #[cfg(not(target_family = "wasm"))]
 use hyper_tls::HttpsConnector;
+use std::fmt::{Debug, Display, Formatter};
 #[cfg(not(target_family = "wasm"))]
 use std::fs::OpenOptions;
 #[cfg(not(target_family = "wasm"))]
 use std::io::Write;
 use std::path::Path;
+use x509::PkiPath;
+
+#[derive(Debug, Eq, PartialEq)]
+enum CrlError {
+    NoCrlAvailable,
+    Revoked,
+}
+
+impl Display for CrlError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CrlError::NoCrlAvailable => write!(f, "No CRL available"),
+            CrlError::Revoked => write!(f, "Certificate(s) revoked"),
+        }
+    }
+}
+
+impl std::error::Error for CrlError {}
+
+trait PkiPathCRLCheck<'a> {
+    /// Checks that:
+    /// 1) There is/are CRL(s) available, and downloads as needed
+    /// 2) The first certificate signed the CRL
+    /// 3) None of the certificates in the Path are revoked.
+    fn check_crl(&self, extra_crl_urls: Option<Vec<String>>) -> Result<()>;
+}
+
+impl<'a> PkiPathCRLCheck<'a> for PkiPath<'a> {
+    fn check_crl(&self, extra_crl_urls: Option<Vec<String>>) -> Result<()> {
+        let certs = self.iter();
+        let mut crl_urls: Vec<String> = Vec::new();
+        if let Some(extra_urls) = extra_crl_urls {
+            crl_urls.append(&mut extra_urls.clone());
+        }
+
+        for cert in certs {
+            crl_urls.append(&mut cert.tbs_certificate.get_crl_urls()?.clone());
+            if crl_urls.is_empty() {
+                continue;
+            }
+        }
+
+        Ok(())
+    }
+}
 
 pub fn fetch_crl(url: &str) -> Result<Vec<u8>> {
     ensure!(
