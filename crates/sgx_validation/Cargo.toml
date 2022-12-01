@@ -9,7 +9,7 @@ description = "Intel SGX Attestation validation library for Steward"
 cryptography = { path = "../cryptography" }
 anyhow = { version = "^1.0.55", default-features = false }
 der = { version = "0.6", features = ["std"], default-features = false }
-sgx = { version = "0.5.0", default-features = false }
+sgx = { version = "0.6.0", default-features = false }
 
 [dev-dependencies]
 testaso = { version = "0.1", default-features = false }
