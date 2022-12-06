@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+use super::super::Measurements;
+
 use serde::{Deserialize, Deserializer};
 use sgx::parameters::{Features, MiscSelect};
-use validation_common::Measurements;
 
 #[derive(Clone, Deserialize, Debug, Eq, PartialEq)]
 pub enum SgxFeatures {
@@ -114,8 +115,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Digest;
     use std::collections::HashSet;
-    use validation_common::Digest;
 
     #[test]
     fn empty_config() {
@@ -127,13 +128,11 @@ mod tests {
         const SIGNER: &str =
             r#"signer = ["2eba0f494f428e799c22d6f12778aebea4dc8d991f9e63fd3cddd57ac6eb5dd9"]"#;
 
-        let signer: HashSet<_> = vec![Digest([
+        let signer: HashSet<_> = HashSet::from([Digest([
             0x2e, 0xba, 0x0f, 0x49, 0x4f, 0x42, 0x8e, 0x79, 0x9c, 0x22, 0xd6, 0xf1, 0x27, 0x78,
             0xae, 0xbe, 0xa4, 0xdc, 0x8d, 0x99, 0x1f, 0x9e, 0x63, 0xfd, 0x3c, 0xdd, 0xd5, 0x7a,
             0xc6, 0xeb, 0x5d, 0xd9,
-        ])]
-        .into_iter()
-        .collect();
+        ])]);
 
         let config: Config = toml::from_str(&format!(
             r#"

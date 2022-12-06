@@ -1,12 +1,13 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use crate::{PlatformInfoFlags, PolicyFlags};
+use super::super::{Digest, Measurements};
+use super::{PlatformInfoFlags, PolicyFlags};
+
 use flagset::FlagSet;
 use semver::VersionReq;
 use serde::{Deserialize, Deserializer};
 use std::collections::HashSet;
-use validation_common::{Digest, Measurements};
 
 #[derive(Clone, Deserialize, Debug, Default, Eq, PartialEq)]
 pub enum SnpPolicyFlags {
@@ -77,8 +78,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Digest;
     use std::collections::HashSet;
-    use validation_common::Digest;
 
     const SIGNER: &str = r#"signer = ["6d193a53817dfc0c7834e6c84687414c08de0b2839aa6593272bd628d1e23c3470f22e80ddec3262f0079ae4747d36aa"]"#;
     const DIGEST: Digest<48> = Digest([
