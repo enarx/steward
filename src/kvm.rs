@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use anyhow::{anyhow, Result};
-use cryptography::const_oid::ObjectIdentifier;
-use cryptography::x509::{ext::Extension, request::CertReqInfo};
+use const_oid::ObjectIdentifier;
+use x509::{ext::Extension, request::CertReqInfo};
 
 /// An extension validator for KVM evidence.
 ///

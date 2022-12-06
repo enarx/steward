@@ -1,6 +1,12 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+pub mod crypto;
+#[cfg(feature = "sgx")]
+pub mod sgx;
+#[cfg(feature = "snp")]
+pub mod snp;
+
 use serde::{Deserialize, Deserializer};
 use std::borrow::Borrow;
 use std::collections::HashSet;

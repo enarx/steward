@@ -4,23 +4,23 @@
 pub mod config;
 
 use self::config::Config;
+use super::crypto::TbsCertificateExt;
 
 use std::{fmt::Debug, mem::size_of};
 
 use anyhow::{bail, ensure, Context, Result};
-use cryptography::const_oid::db::rfc5912::ECDSA_WITH_SHA_384;
-use cryptography::const_oid::ObjectIdentifier;
-use cryptography::ext::TbsCertificateExt;
-use cryptography::sec1::pkcs8::AlgorithmIdentifier;
-use cryptography::sha2::{Digest, Sha384};
-use cryptography::x509::ext::Extension;
-use cryptography::x509::{request::CertReqInfo, Certificate};
-use cryptography::x509::{PkiPath, TbsCertificate};
+use const_oid::db::rfc5912::ECDSA_WITH_SHA_384;
+use const_oid::ObjectIdentifier;
 use der::asn1::UIntRef;
 use der::{Decode, Encode, Sequence};
 use flagset::{flags, FlagSet};
+use sec1::pkcs8::AlgorithmIdentifier;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha384};
+use x509::ext::Extension;
+use x509::{request::CertReqInfo, Certificate};
+use x509::{PkiPath, TbsCertificate};
 
 #[derive(Clone, Debug, PartialEq, Eq, Sequence)]
 pub struct Evidence<'a> {

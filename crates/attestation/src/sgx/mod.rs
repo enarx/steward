@@ -4,17 +4,17 @@
 pub mod config;
 pub mod quote;
 
-use cryptography::ext::*;
+use crate::crypto::*;
 use quote::traits::ParseBytes;
 
 use std::fmt::Debug;
 
-use crate::config::Config;
+use crate::sgx::config::Config;
 use anyhow::{bail, ensure, Result};
-use cryptography::const_oid::ObjectIdentifier;
-use cryptography::sha2::{Digest, Sha256};
-use cryptography::x509::{ext::Extension, request::CertReqInfo, Certificate, TbsCertificate};
+use const_oid::ObjectIdentifier;
 use der::{Decode, Encode};
+use sha2::{Digest, Sha256};
+use x509::{ext::Extension, request::CertReqInfo, Certificate, TbsCertificate};
 
 #[derive(Clone, Debug)]
 pub struct Sgx([Certificate<'static>; 1]);
