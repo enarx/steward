@@ -89,53 +89,53 @@ impl Sgx {
                 hash.as_slice() == &rpt.reportdata[..hash.as_slice().len()],
                 "sgx report data is invalid"
             );
+        }
 
-            if let Some(config) = config {
-                if !config.measurements.signer.is_empty() {
-                    let signed = config.measurements.signer.contains(&rpt.mrsigner);
-                    ensure!(signed, "sgx untrusted enarx signer");
-                }
+        if let Some(config) = config {
+            if !config.measurements.signer.is_empty() {
+                let signed = config.measurements.signer.contains(&rpt.mrsigner);
+                ensure!(signed, "sgx untrusted enarx signer");
+            }
 
-                if !config.measurements.hash.is_empty() {
-                    let approved = config.measurements.hash.contains(&rpt.mrenclave);
-                    ensure!(approved, "sgx untrusted enarx hash");
-                }
+            if !config.measurements.hash.is_empty() {
+                let approved = config.measurements.hash.contains(&rpt.mrenclave);
+                ensure!(approved, "sgx untrusted enarx hash");
+            }
 
-                if !config.measurements.hash_blacklist.is_empty() {
-                    let denied = config.measurements.hash_blacklist.contains(&rpt.mrenclave);
-                    ensure!(!denied, "sgx untrusted enarx hash");
-                }
+            if !config.measurements.hash_blacklist.is_empty() {
+                let denied = config.measurements.hash_blacklist.contains(&rpt.mrenclave);
+                ensure!(!denied, "sgx untrusted enarx hash");
+            }
 
-                if let Some(product_id) = config.enclave_product_id {
-                    ensure!(
-                        rpt.enclave_product_id() == product_id,
-                        "sgx untrusted enclave product id",
-                    );
-                }
+            if let Some(product_id) = config.enclave_product_id {
+                ensure!(
+                    rpt.enclave_product_id() == product_id,
+                    "sgx untrusted enclave product id",
+                );
+            }
 
-                if let Some(version) = config.enclave_security_version {
-                    ensure!(
-                        rpt.enclave_security_version() >= version,
-                        "sgx untrusted enclave security version"
-                    );
-                }
+            if let Some(version) = config.enclave_security_version {
+                ensure!(
+                    rpt.enclave_security_version() >= version,
+                    "sgx untrusted enclave security version"
+                );
+            }
 
-                if !config.features.is_empty()
-                    && !rpt
-                        .attributes()
-                        .features()
-                        .difference(config.features)
-                        .is_empty()
-                {
-                    bail!("sgx untrusted features");
-                }
+            if !config.features.is_empty()
+                && !rpt
+                    .attributes()
+                    .features()
+                    .difference(config.features)
+                    .is_empty()
+            {
+                bail!("sgx untrusted features");
+            }
 
-                if !config.misc_select.is_empty() {
-                    ensure!(
-                        rpt.misc_select().difference(config.misc_select).is_empty(),
-                        "sgx untrusted misc select"
-                    );
-                }
+            if !config.misc_select.is_empty() {
+                ensure!(
+                    rpt.misc_select().difference(config.misc_select).is_empty(),
+                    "sgx untrusted misc select"
+                );
             }
         }
 
