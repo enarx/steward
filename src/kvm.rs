@@ -17,12 +17,7 @@ impl Kvm {
     pub(crate) const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.58270.1.1");
     pub(crate) const ATT: bool = true;
 
-    pub(crate) fn verify(
-        &self,
-        _cri: &CertReqInfo<'_>,
-        ext: &Extension<'_>,
-        dbg: bool,
-    ) -> Result<bool> {
+    pub(crate) fn verify(&self, _cri: &CertReqInfo<'_>, ext: &Extension<'_>) -> Result<bool> {
         if ext.critical {
             return Err(anyhow!("kvm extension cannot be critical"));
         }
@@ -31,10 +26,10 @@ impl Kvm {
             return Err(anyhow!("invalid kvm extension"));
         }
 
-        if !dbg {
-            return Err(anyhow!("steward not in debug mode"));
-        }
+        #[cfg(not(feature = "insecure"))]
+        return Err(anyhow!("steward not in debug mode"));
 
+        #[cfg(feature = "insecure")]
         Ok(true)
     }
 }

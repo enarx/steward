@@ -5,9 +5,11 @@
 
 #[macro_use]
 extern crate anyhow;
+#[cfg(feature = "insecure")]
 mod kvm;
 
 use cryptography::ext::{CertReqExt, PrivateKeyInfoExt, TbsCertificateExt};
+#[cfg(feature = "insecure")]
 use kvm::Kvm;
 use sgx_validation::Sgx;
 use snp_validation::Snp;
@@ -27,23 +29,26 @@ use axum::routing::{get, post};
 use axum::Router;
 use clap::Parser;
 use confargs::{prefix_char_filter, Toml};
+#[cfg(feature = "insecure")]
+use cryptography::const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE};
 use cryptography::const_oid::db::rfc5280::{
-    ID_CE_BASIC_CONSTRAINTS, ID_CE_EXT_KEY_USAGE, ID_CE_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME,
-    ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH,
+    ID_CE_EXT_KEY_USAGE, ID_CE_SUBJECT_ALT_NAME, ID_KP_CLIENT_AUTH, ID_KP_SERVER_AUTH,
 };
 use cryptography::const_oid::db::rfc5912::ID_EXTENSION_REQ;
 use cryptography::rustls_pemfile;
 use cryptography::sec1::pkcs8::PrivateKeyInfo;
 use cryptography::x509::attr::Attribute;
 use cryptography::x509::ext::pkix::name::GeneralName;
-use cryptography::x509::ext::pkix::{
-    BasicConstraints, ExtendedKeyUsage, KeyUsage, KeyUsages, SubjectAltName,
-};
+#[cfg(feature = "insecure")]
+use cryptography::x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
+use cryptography::x509::ext::pkix::{ExtendedKeyUsage, SubjectAltName};
 use cryptography::x509::name::RdnSequence;
 use cryptography::x509::request::{CertReq, ExtensionReq};
 use cryptography::x509::time::{Time, Validity};
 use cryptography::x509::{Certificate, TbsCertificate};
-use der::asn1::{GeneralizedTime, Ia5StringRef, UIntRef};
+#[cfg(feature = "insecure")]
+use der::asn1::GeneralizedTime;
+use der::asn1::{Ia5StringRef, UIntRef};
 use der::{Decode, Encode, Sequence};
 use hyper::StatusCode;
 use serde::Deserialize;
@@ -67,6 +72,7 @@ const BUNDLE: &str = "application/vnd.steward.pkcs10-bundle.v1";
 /// names to their values.
 #[derive(Clone, Debug, Parser)]
 #[command(author, version, about)]
+#[cfg_attr(feature = "insecure", clap(about = "Insecure Mode", long_about = None))]
 struct Args {
     #[arg(short, long, env = "STEWARD_KEY")]
     key: Option<PathBuf>,
@@ -80,6 +86,7 @@ struct Args {
     #[arg(short, long, env = "ROCKET_ADDRESS", default_value = "::")]
     addr: IpAddr,
 
+    #[cfg(feature = "insecure")]
     #[arg(long, env = "RENDER_EXTERNAL_HOSTNAME")]
     host: Option<String>,
 
@@ -153,7 +160,17 @@ impl State {
 
         // Validate the syntax of the files.
         PrivateKeyInfo::from_der(key.as_ref())?;
+        #[cfg(feature = "insecure")]
         Certificate::from_der(crt.as_ref())?;
+        #[cfg(not(feature = "insecure"))]
+        {
+            let cert = Certificate::from_der(crt.as_ref())?;
+            let iss = &cert.tbs_certificate;
+            if iss.issuer_unique_id == iss.subject_unique_id && iss.issuer == iss.subject {
+                // A self-signed certificate is not appropriate for Release mode.
+                return Err(anyhow!("invalid certificate"));
+            }
+        }
 
         let config = if let Some(path) = config {
             let config = std::fs::read_to_string(path).context("failed to read config file")?;
@@ -170,6 +187,7 @@ impl State {
         })
     }
 
+    #[cfg(feature = "insecure")]
     pub fn generate(san: Option<String>, hostname: &str) -> anyhow::Result<Self> {
         use cryptography::const_oid::db::rfc5912::SECP_256_R_1 as P256;
 
@@ -245,14 +263,28 @@ async fn main() -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
     }
 
+    #[cfg(feature = "insecure")]
+    println!("Running in insecure mode.");
+
     let args = confargs::args::<Toml>(prefix_char_filter::<'@'>)
         .context("Failed to parse config")
         .map(Args::parse_from)?;
+
+    #[cfg(feature = "insecure")]
     let state = match (args.key, args.crt, args.host) {
         (None, None, Some(host)) => State::generate(args.san, &host)?,
         (Some(key), Some(crt), _) => State::load(args.san, key, crt, args.config)?,
         _ => {
             eprintln!("Either:\n* Specify the public key `--crt` and private key `--key`, or\n* Specify the host `--host`.\n\nRun with `--help` for more information.");
+            return Err(anyhow!("invalid configuration"));
+        }
+    };
+
+    #[cfg(not(feature = "insecure"))]
+    let state = match (args.key, args.crt) {
+        (Some(key), Some(crt)) => State::load(args.san, key, crt, args.config)?,
+        _ => {
+            eprintln!("Specify the public key `--crt` and private key `--key`.\nRun with `--help` for more information.");
             return Err(anyhow!("invalid configuration"));
         }
     };
@@ -359,20 +391,16 @@ fn attest_request(
                 StatusCode::BAD_REQUEST
             })?;
             for ext in Vec::from(ereq) {
-                // If the issuer is self-signed, we are in debug mode.
-                let iss = &issuer.tbs_certificate;
-                let dbg = iss.issuer_unique_id == iss.subject_unique_id;
-                let dbg = dbg && iss.issuer == iss.subject;
-
                 // Validate the extension.
                 let (copy, att) = match ext.extn_id {
-                    Kvm::OID => (Kvm::default().verify(&info, &ext, dbg), Kvm::ATT),
+                    #[cfg(feature = "insecure")]
+                    Kvm::OID => (Kvm::default().verify(&info, &ext), Kvm::ATT),
                     Sgx::OID => (
-                        Sgx::default().verify(&info, &ext, state.config.sgx.as_ref(), dbg),
+                        Sgx::default().verify(&info, &ext, state.config.sgx.as_ref()),
                         Sgx::ATT,
                     ),
                     Snp::OID => (
-                        Snp::default().verify(&info, &ext, state.config.snp.as_ref(), dbg),
+                        Snp::default().verify(&info, &ext, state.config.snp.as_ref()),
                         Snp::ATT,
                     ),
                     oid => {
@@ -532,8 +560,9 @@ mod tests {
     mod attest {
         use super::init_tracing;
         use crate::*;
-
-        use cryptography::const_oid::db::rfc5912::{ID_EXTENSION_REQ, SECP_256_R_1, SECP_384_R_1};
+        #[cfg(feature = "insecure")]
+        use cryptography::const_oid::db::rfc5912::SECP_384_R_1;
+        use cryptography::const_oid::db::rfc5912::{ID_EXTENSION_REQ, SECP_256_R_1};
         use cryptography::const_oid::ObjectIdentifier;
         use cryptography::ext::CertReqInfoExt;
         use cryptography::x509::attr::Attribute;
@@ -541,30 +570,48 @@ mod tests {
         use cryptography::x509::PkiPath;
         use cryptography::x509::{ext::Extension, name::RdnSequence};
         use der::{AnyRef, Encode};
-        use kvm::Kvm;
+        #[cfg(feature = "insecure")]
         use sgx_validation::Sgx;
+        #[cfg(feature = "insecure")]
         use snp_validation::{Evidence, Snp};
 
         use axum::response::Response;
         use http::header::CONTENT_TYPE;
         use http::Request;
         use hyper::Body;
+        #[cfg(feature = "insecure")]
         use rstest::rstest;
         use tower::ServiceExt; // for `app.oneshot()`
 
         fn certificates_state() -> State {
             #[cfg(not(target_os = "wasi"))]
-            return State::load(None, "testdata/ca.key", "testdata/ca.crt", None)
-                .expect("failed to load state");
+            {
+                #[cfg(feature = "insecure")]
+                return State::load(None, "testdata/ca.key", "testdata/ca.crt", None)
+                    .expect("failed to load state");
+                #[cfg(not(feature = "insecure"))]
+                return State::load(None, "testdata/test.key", "testdata/test.crt", None)
+                    .expect("failed to load state");
+            }
             #[cfg(target_os = "wasi")]
             {
-                let crt = std::io::BufReader::new(include_bytes!("../testdata/ca.crt").as_slice());
-                let key = std::io::BufReader::new(include_bytes!("../testdata/ca.key").as_slice());
+                let (crt, key) = if cfg!(feature = "insecure") {
+                    (
+                        std::io::BufReader::new(include_bytes!("../testdata/ca.crt").as_slice()),
+                        std::io::BufReader::new(include_bytes!("../testdata/ca.key").as_slice()),
+                    )
+                } else {
+                    (
+                        std::io::BufReader::new(include_bytes!("../testdata/test.crt").as_slice()),
+                        std::io::BufReader::new(include_bytes!("../testdata/test.key").as_slice()),
+                    )
+                };
 
                 State::read(None, key, crt, None).expect("failed to load state")
             }
         }
 
+        #[cfg(feature = "insecure")]
         fn hostname_state() -> State {
             State::generate(None, "localhost").unwrap()
         }
@@ -636,6 +683,7 @@ mod tests {
             assert_eq!(encoded, reencoded);
         }
 
+        #[cfg(feature = "insecure")]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -660,6 +708,7 @@ mod tests {
             attest_response(certificates_state(), response, multi).await;
         }
 
+        #[cfg(feature = "insecure")]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -687,6 +736,7 @@ mod tests {
 
         // Though similar to the above test, this is the only test which
         // actually sends many CSRs, versus an array of just one CSR.
+        #[cfg(feature = "insecure")]
         #[tokio::test]
         async fn kvm_hostname_many_certs() {
             init_tracing();
@@ -725,6 +775,39 @@ mod tests {
             assert_eq!(output.issued.len(), five_crs.len());
         }
 
+        #[tokio::test]
+        async fn sgx_canned_csr() {
+            let csr = include_bytes!("../crates/sgx_validation/src/icelake.csr");
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(Bytes::from(csr.as_slice())))
+                .unwrap();
+
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            attest_response(certificates_state(), response, false).await;
+        }
+
+        #[tokio::test]
+        async fn sgx_canned_csr_signed() {
+            let csr = include_bytes!("../crates/sgx_validation/src/icelake_signed.csr");
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(Bytes::from(csr.as_slice())))
+                .unwrap();
+
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            attest_response(certificates_state(), response, false).await;
+        }
+
+        #[cfg(feature = "insecure")]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -754,6 +837,7 @@ mod tests {
             }
         }
 
+        #[cfg(feature = "insecure")]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -784,6 +868,39 @@ mod tests {
             }
         }
 
+        #[tokio::test]
+        async fn snp_canned_csr() {
+            let csr = include_bytes!("../crates/snp_validation/src/milan.csr");
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(Bytes::from(csr.as_slice())))
+                .unwrap();
+
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            attest_response(certificates_state(), response, false).await;
+        }
+
+        #[tokio::test]
+        async fn snp_canned_csr_signed() {
+            let csr = include_bytes!("../crates/snp_validation/src/milan_signed.csr");
+
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(CONTENT_TYPE, PKCS10)
+                .body(Body::from(Bytes::from(csr.as_slice())))
+                .unwrap();
+
+            let response = app(certificates_state()).oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            attest_response(certificates_state(), response, false).await;
+        }
+
+        #[cfg(feature = "insecure")]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -818,6 +935,7 @@ mod tests {
             attest_response(certificates_state(), response, multi).await;
         }
 
+        #[cfg(feature = "insecure")]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -853,6 +971,7 @@ mod tests {
             attest_response(state, response, multi).await;
         }
 
+        #[cfg(feature = "insecure")]
         #[rstest]
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
@@ -870,6 +989,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         }
 
+        #[cfg(feature = "insecure")]
         #[tokio::test]
         async fn err_no_attestation_hostname() {
             init_tracing();
@@ -884,6 +1004,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         }
 
+        #[cfg(feature = "insecure")]
         #[rstest]
         #[case(false)]
         #[case(true)]
@@ -900,6 +1021,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
+        #[cfg(feature = "insecure")]
         #[tokio::test]
         async fn err_empty_body() {
             init_tracing();
@@ -913,6 +1035,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
+        #[cfg(feature = "insecure")]
         #[tokio::test]
         async fn err_bad_body() {
             init_tracing();
@@ -926,6 +1049,7 @@ mod tests {
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         }
 
+        #[cfg(feature = "insecure")]
         #[tokio::test]
         async fn err_bad_csr_sig() {
             init_tracing();
@@ -988,7 +1112,7 @@ mod tests {
                         // Validate the report.
                         let pck = sgx.trusted(&chain)?;
                         let report = quote.verify(pck)?;
-                        sgx.verify(&csr.info, &ext, Some(conf), false)?;
+                        sgx.verify(&csr.info, &ext, Some(conf))?;
                     }
                 }
             }
@@ -1009,7 +1133,7 @@ mod tests {
                         let evidence = Evidence::from_der(ext.extn_value)?;
                         let array = evidence.report.try_into()?;
                         let report = Report::cast(array);
-                        snp.verify(&csr.info, &ext, Some(conf), false)?;
+                        snp.verify(&csr.info, &ext, Some(conf))?;
                     }
                 }
             }
