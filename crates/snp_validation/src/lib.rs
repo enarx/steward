@@ -306,8 +306,6 @@ impl Snp {
         )
         .context("snp report contains invalid signature")?;
 
-        // TODO: additional field validations.
-
         // Should only be version 2
         ensure!(
             report.body.version == 2,
@@ -369,14 +367,14 @@ impl Snp {
             "snp report platform_info reserved fields were set"
         );
 
+        // Check fields not set by Enarx
         ensure!(report.body.sig_algo == 1, "snp signature algorithm not 1");
 
-        // Check fields not set by Enarx
+        // Check fields set by Enarx
         ensure!(report.body.family_id == [0; 16], "snp family id was set");
 
         ensure!(report.body.image_id == [0; 16], "snp image id was set");
 
-        // Check fields set by Enarx
         ensure!(
             report.body.host_data == [0; 32],
             "snp report host_data field should not be set by Enarx"
