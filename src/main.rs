@@ -513,8 +513,26 @@ async fn attest(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Once;
+    static TRACING: Once = Once::new();
+
+    pub fn init_tracing() {
+        TRACING.call_once(|| {
+            if std::env::var("RUST_LOG_JSON").is_ok() {
+                tracing_subscriber::fmt::fmt()
+                    .json()
+                    .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                    .init();
+            } else {
+                tracing_subscriber::fmt::init();
+            }
+        });
+    }
+
     mod attest {
+        use super::init_tracing;
         use crate::*;
+
         use cryptography::const_oid::db::rfc5912::{ID_EXTENSION_REQ, SECP_256_R_1, SECP_384_R_1};
         use cryptography::const_oid::ObjectIdentifier;
         use cryptography::ext::CertReqInfoExt;
@@ -623,6 +641,7 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn kvm_certs(#[case] header: &str, #[case] multi: bool) {
+            init_tracing();
             let ext = Extension {
                 extn_id: Kvm::OID,
                 critical: false,
@@ -646,6 +665,7 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn kvm_hostname(#[case] header: &str, #[case] multi: bool) {
+            init_tracing();
             let ext = Extension {
                 extn_id: Kvm::OID,
                 critical: false,
@@ -669,6 +689,7 @@ mod tests {
         // actually sends many CSRs, versus an array of just one CSR.
         #[tokio::test]
         async fn kvm_hostname_many_certs() {
+            init_tracing();
             let ext = Extension {
                 extn_id: Kvm::OID,
                 critical: false,
@@ -709,6 +730,7 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn sgx_certs(#[case] header: &str, #[case] multi: bool) {
+            init_tracing();
             for quote in [
                 include_bytes!("../crates/sgx_validation/src/quote.unknown").as_slice(),
                 include_bytes!("../crates/sgx_validation/src/quote.icelake").as_slice(),
@@ -737,6 +759,7 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn sgx_hostname(#[case] header: &str, #[case] multi: bool) {
+            init_tracing();
             for quote in [
                 include_bytes!("../crates/sgx_validation/src/quote.unknown").as_slice(),
                 include_bytes!("../crates/sgx_validation/src/quote.icelake").as_slice(),
@@ -766,6 +789,7 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn snp_certs(#[case] header: &str, #[case] multi: bool) {
+            init_tracing();
             let evidence = Evidence {
                 vcek: Certificate::from_der(include_bytes!(
                     "../crates/snp_validation/src/milan.vcek"
@@ -799,6 +823,7 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn snp_hostname(#[case] header: &str, #[case] multi: bool) {
+            init_tracing();
             let evidence = Evidence {
                 vcek: Certificate::from_der(include_bytes!(
                     "../crates/snp_validation/src/milan.vcek"
@@ -833,6 +858,7 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn err_no_attestation_certs(#[case] header: &str, #[case] multi: bool) {
+            init_tracing();
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -846,6 +872,7 @@ mod tests {
 
         #[tokio::test]
         async fn err_no_attestation_hostname() {
+            init_tracing();
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -862,6 +889,7 @@ mod tests {
         #[case(true)]
         #[tokio::test]
         async fn err_no_content_type(#[case] multi: bool) {
+            init_tracing();
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -874,6 +902,7 @@ mod tests {
 
         #[tokio::test]
         async fn err_empty_body() {
+            init_tracing();
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -886,6 +915,7 @@ mod tests {
 
         #[tokio::test]
         async fn err_bad_body() {
+            init_tracing();
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -898,6 +928,7 @@ mod tests {
 
         #[tokio::test]
         async fn err_bad_csr_sig() {
+            init_tracing();
             let mut cr = cr(SECP_256_R_1, vec![], true);
             let last = cr.last_mut().unwrap();
             *last = last.wrapping_add(1); // Modify the signature...
@@ -916,7 +947,9 @@ mod tests {
 
     // Unit tests for configuration
     mod config {
+        use super::init_tracing;
         use crate::Config;
+
         use cryptography::x509::attr::Attribute;
         use cryptography::x509::request::{CertReq, ExtensionReq};
         use cryptography::x509::Certificate;
@@ -937,6 +970,7 @@ mod tests {
             csr: &CertReq<'_>,
             conf: &sgx_validation::config::Config,
         ) -> anyhow::Result<()> {
+            init_tracing();
             let sgx = sgx_validation::Sgx::default();
 
             #[allow(unused_variables)]
@@ -965,6 +999,7 @@ mod tests {
             csr: &CertReq<'_>,
             conf: &snp_validation::config::Config,
         ) -> anyhow::Result<()> {
+            init_tracing();
             let snp = Snp::default();
             #[allow(unused_variables)]
             for Attribute { oid, values } in csr.info.attributes.iter() {
@@ -997,7 +1032,7 @@ mod tests {
             policy_flags = ["SingleSocket", "Debug", "SMT"]
             signer = ["e368c18e60842db9325778532dd81594d732078bf01aa91686be40333da639e08733b910bd057bdda50d715968b075ce"]
             abi = ">1.0"
-            
+
             [sgx]
             signer = ["2eba0f494f428e799c22d6f12778aebea4dc8d991f9e63fd3cddd57ac6eb5dd9"]
             "#,
