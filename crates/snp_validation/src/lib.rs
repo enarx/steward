@@ -382,6 +382,20 @@ impl Snp {
 
         ensure!(report.body.vmpl == 0, "snp report vmpl field invalid value");
 
+        if !dbg {
+            // Validate that the certification request came from an SNP VM.
+            let hash = Sha384::digest(cri.public_key.to_vec()?);
+            ensure!(
+                hash.as_slice() == &report.body.report_data[..hash.as_slice().len()],
+                "snp report.report_data is invalid"
+            );
+
+            ensure!(
+                !report.body.policy.flags.contains(PolicyFlags::Debug),
+                "snp guest policy permits debugging"
+            );
+        }
+
         if let Some(config) = config {
             ensure!(
                 config.abi.matches(&report.body.policy.into()),
@@ -432,20 +446,6 @@ impl Snp {
                     "snp unexpected platform info flags"
                 );
             }
-        }
-
-        if !dbg {
-            // Validate that the certification request came from an SNP VM.
-            let hash = Sha384::digest(cri.public_key.to_vec()?);
-            ensure!(
-                hash.as_slice() == &report.body.report_data[..hash.as_slice().len()],
-                "snp report.report_data is invalid"
-            );
-
-            ensure!(
-                !report.body.policy.flags.contains(PolicyFlags::Debug),
-                "snp guest policy permits debugging"
-            );
         }
 
         Ok(false)
