@@ -1,0 +1,34 @@
+[package]
+name = "steward-server"
+version = "0.2.0"
+edition = "2021"
+license = "AGPL-3.0"
+description = "Server library for Steward"
+
+[dependencies]
+anyhow = { version = "^1.0.66", default-features = false }
+attestation = { path = "../../crates/attestation", features = ["sgx", "snp"] }
+axum = { version = "^0.5.17", features = ["headers"], default-features = false }
+const-oid = { version = "0.9.1", features = ["db"], default-features = false }
+der = { version = "0.6", features = ["std"], default-features = false }
+hyper = { git = "https://github.com/rjzak/hyper", branch = "wasi_wip", features = ["http1", "server"], default-features = false }
+rustls-pemfile = {version = "1.0.1", default-features = false }
+sec1 = { version = "0.3", features = ["std", "pkcs8"], default-features = false }
+serde = { version = "1.0", features = ["derive"], default-features = false }
+tokio = { version = "^1.23.0", features = ["rt", "macros"], default-features = false }
+toml = { version = "0.5", default-features = false }
+tower-http = { version = "^0.3.5", features = ["trace"], default-features = false }
+tracing = { version = "^0.1.29", default-features = false }
+tracing-subscriber = { version="^0.3.15", features = ["env-filter", "json", "fmt"], default-features = false }
+uuid = { version = "^1.2.2", features = ["v4"], default-features = false }
+x509 = { version = "0.1", features = ["std"], package = "x509-cert", default-features = false }
+zeroize = { version = "^1.5.2", features = ["alloc"], default-features = false }
+
+[dev-dependencies]
+axum = { version = "^0.5.17", default-features = false }
+http = { version = "^0.2.6", default-features = false }
+memoffset = { version = "0.7.1", default-features = false }
+rstest = { version = "0.16", default-features = false }
+sgx = { version = "0.6.0", default-features = false }
+testaso = { version = "0.1", default-features = false }
+tower = { version = "^0.4.11", features = ["util"], default-features = false }
