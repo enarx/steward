@@ -7,11 +7,12 @@ pub mod sgx;
 #[cfg(feature = "snp")]
 pub mod snp;
 
-use serde::{Deserialize, Deserializer};
 use std::borrow::Borrow;
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::ops::Deref;
+
+use serde::{Deserialize, Deserializer};
 
 /// Digest generic in hash size `N`
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
