@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+#![allow(unused_variables, unused_imports)] // temporary until CRL validation enabled
+
 pub mod config;
 
 use self::config::Config;
-use super::crypto::TbsCertificateExt;
+use super::crypto::{CrlList, PkiPathCRLCheck, TbsCertificateExt};
 
 use std::{fmt::Debug, mem::size_of};
 
@@ -23,8 +25,14 @@ use x509::{request::CertReqInfo, Certificate};
 use x509::{PkiPath, TbsCertificate};
 
 #[derive(Clone, Debug, PartialEq, Eq, Sequence)]
-pub struct Evidence<'a> {
+pub struct Certificates<'a> {
     pub vcek: Certificate<'a>,
+    pub crl: CrlList<'a>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Sequence)]
+pub struct Evidence<'a> {
+    pub crts: Certificates<'a>,
 
     #[asn1(type = "OCTET STRING")]
     pub report: &'a [u8],
@@ -234,9 +242,10 @@ impl Snp {
     pub const ATT: bool = true;
 
     // This ensures that the supplied vcek is rooted in one of our trusted chains.
-    fn is_trusted<'c>(&self, vcek: &'c Certificate<'c>) -> Result<&'c TbsCertificate<'c>> {
+    fn is_trusted<'c>(&self, certs: &'c Certificates<'c>) -> Result<&'c TbsCertificate<'c>> {
         for root in Self::ROOTS {
             let path = PkiPath::from_der(root)?;
+            let vcek = &certs.vcek;
 
             let mut signer = Some(&path[0].tbs_certificate);
             for cert in path.iter().chain([vcek].into_iter()) {
@@ -245,6 +254,9 @@ impl Snp {
 
             if let Some(signer) = signer {
                 if signer == &vcek.tbs_certificate {
+                    //let mut path = path;
+                    //path.push(vcek.clone());
+                    //path.check_crl(&certs.crl)?;
                     return Ok(&vcek.tbs_certificate);
                 }
             }
@@ -266,7 +278,7 @@ impl Snp {
         let evidence = Evidence::from_der(ext.extn_value)?;
 
         // Validate the VCEK.
-        let vcek = self.is_trusted(&evidence.vcek)?;
+        let vcek = self.is_trusted(&evidence.crts)?;
 
         // Force certs to have the same key type as the VCEK.
         //

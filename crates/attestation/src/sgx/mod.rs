@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+#![allow(unused_variables, unused_imports)] // temporary until CRL validation enabled
+
 pub mod config;
 pub mod quote;
 
@@ -14,7 +16,7 @@ use anyhow::{bail, ensure, Result};
 use const_oid::ObjectIdentifier;
 use der::{Decode, Encode};
 use sha2::{Digest, Sha256};
-use x509::{ext::Extension, request::CertReqInfo, Certificate, TbsCertificate};
+use x509::{ext::Extension, request::CertReqInfo, Certificate, PkiPath, TbsCertificate};
 
 #[derive(Clone, Debug)]
 pub struct Sgx([Certificate<'static>; 1]);
@@ -30,11 +32,17 @@ impl Sgx {
     pub const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.58270.1.2");
     pub const ATT: bool = true;
 
-    pub fn trusted<'c>(&'c self, chain: &'c [Certificate<'c>]) -> Result<&'c TbsCertificate<'c>> {
+    pub fn trusted<'c>(
+        &'c self,
+        chain: &'c [Certificate<'c>],
+        crls: &'c CrlList<'c>,
+    ) -> Result<&'c TbsCertificate<'c>> {
         let mut signer = &self.0[0].tbs_certificate;
         for cert in self.0.iter().chain(chain.iter()) {
             signer = signer.verify_crt(cert)?;
         }
+
+        //PkiPath::from(chain).check_crl(crls)?;
 
         Ok(signer)
     }
@@ -60,7 +68,7 @@ impl Sgx {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Validate the report.
-        let pck = self.trusted(&chain)?;
+        let pck = self.trusted(&chain, &quote.crls)?;
         let rpt = quote.verify(pck)?;
 
         // Force certs to have the same key type as the PCK.

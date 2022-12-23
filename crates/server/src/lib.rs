@@ -444,9 +444,7 @@ mod tests {
         use super::{init_tracing, TRACING};
 
         use attestation::crypto::{CertReqInfoExt, PrivateKeyInfoExt, TbsCertificateExt};
-        use attestation::sgx::Sgx;
-        use attestation::snp::{Evidence, Snp};
-        use const_oid::db::rfc5912::{ID_EXTENSION_REQ, SECP_256_R_1, SECP_384_R_1};
+        use const_oid::db::rfc5912::{ID_EXTENSION_REQ, SECP_256_R_1};
         use const_oid::ObjectIdentifier;
         use der::{AnyRef, Decode, Encode};
         use x509::attr::Attribute;
@@ -553,6 +551,7 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn kvm_certs(#[case] header: &str, #[case] multi: bool) {
+            TRACING.call_once(init_tracing);
             let ext = Extension {
                 extn_id: Kvm::OID,
                 critical: false,
@@ -576,6 +575,7 @@ mod tests {
         #[case(BUNDLE, true)]
         #[tokio::test]
         async fn kvm_hostname(#[case] header: &str, #[case] multi: bool) {
+            TRACING.call_once(init_tracing);
             let ext = Extension {
                 extn_id: Kvm::OID,
                 critical: false,
@@ -599,6 +599,7 @@ mod tests {
         // actually sends many CSRs, versus an array of just one CSR.
         #[tokio::test]
         async fn kvm_hostname_many_certs() {
+            TRACING.call_once(init_tracing);
             let ext = Extension {
                 extn_id: Kvm::OID,
                 critical: false,
@@ -638,131 +639,8 @@ mod tests {
         #[case(PKCS10, false)]
         #[case(BUNDLE, true)]
         #[tokio::test]
-        async fn sgx_certs(#[case] header: &str, #[case] multi: bool) {
-            TRACING.call_once(init_tracing);
-            for quote in [
-                include_bytes!("../../attestation/src/sgx/quote.unknown").as_slice(),
-                include_bytes!("../../attestation/src/sgx/quote.icelake").as_slice(),
-            ] {
-                let ext = Extension {
-                    extn_id: Sgx::OID,
-                    critical: false,
-                    extn_value: quote,
-                };
-
-                let request = Request::builder()
-                    .method("POST")
-                    .uri("/")
-                    .header(CONTENT_TYPE, header)
-                    .body(Body::from(cr(SECP_256_R_1, vec![ext], multi)))
-                    .unwrap();
-
-                let response = app(certificates_state()).oneshot(request).await.unwrap();
-                assert_eq!(response.status(), StatusCode::OK);
-                attest_response(certificates_state(), response, multi).await;
-            }
-        }
-
-        #[rstest]
-        #[case(PKCS10, false)]
-        #[case(BUNDLE, true)]
-        #[tokio::test]
-        async fn sgx_hostname(#[case] header: &str, #[case] multi: bool) {
-            TRACING.call_once(init_tracing);
-            for quote in [
-                include_bytes!("../../attestation/src/sgx/quote.unknown").as_slice(),
-                include_bytes!("../../attestation/src/sgx/quote.icelake").as_slice(),
-            ] {
-                let ext = Extension {
-                    extn_id: Sgx::OID,
-                    critical: false,
-                    extn_value: quote,
-                };
-
-                let request = Request::builder()
-                    .method("POST")
-                    .uri("/")
-                    .header(CONTENT_TYPE, header)
-                    .body(Body::from(cr(SECP_256_R_1, vec![ext], multi)))
-                    .unwrap();
-
-                let state = hostname_state();
-                let response = app(state.clone()).oneshot(request).await.unwrap();
-                assert_eq!(response.status(), StatusCode::OK);
-                attest_response(state, response, multi).await;
-            }
-        }
-
-        #[rstest]
-        #[case(PKCS10, false)]
-        #[case(BUNDLE, true)]
-        #[tokio::test]
-        async fn snp_certs(#[case] header: &str, #[case] multi: bool) {
-            TRACING.call_once(init_tracing);
-            let evidence = Evidence {
-                vcek: Certificate::from_der(include_bytes!("../../attestation/src/snp/milan.vcek"))
-                    .unwrap(),
-                report: include_bytes!("../../attestation/src/snp/milan.rprt"),
-            }
-            .to_vec()
-            .unwrap();
-
-            let ext = Extension {
-                extn_id: Snp::OID,
-                critical: false,
-                extn_value: &evidence,
-            };
-
-            let request = Request::builder()
-                .method("POST")
-                .uri("/")
-                .header(CONTENT_TYPE, header)
-                .body(Body::from(cr(SECP_384_R_1, vec![ext], multi)))
-                .unwrap();
-
-            let response = app(certificates_state()).oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-            attest_response(certificates_state(), response, multi).await;
-        }
-
-        #[rstest]
-        #[case(PKCS10, false)]
-        #[case(BUNDLE, true)]
-        #[tokio::test]
-        async fn snp_hostname(#[case] header: &str, #[case] multi: bool) {
-            TRACING.call_once(init_tracing);
-            let evidence = Evidence {
-                vcek: Certificate::from_der(include_bytes!("../../attestation/src/snp/milan.vcek"))
-                    .unwrap(),
-                report: include_bytes!("../../attestation/src/snp/milan.rprt"),
-            }
-            .to_vec()
-            .unwrap();
-
-            let ext = Extension {
-                extn_id: Snp::OID,
-                critical: false,
-                extn_value: &evidence,
-            };
-
-            let request = Request::builder()
-                .method("POST")
-                .uri("/")
-                .header(CONTENT_TYPE, header)
-                .body(Body::from(cr(SECP_384_R_1, vec![ext], multi)))
-                .unwrap();
-
-            let state = hostname_state();
-            let response = app(state.clone()).oneshot(request).await.unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-            attest_response(state, response, multi).await;
-        }
-
-        #[rstest]
-        #[case(PKCS10, false)]
-        #[case(BUNDLE, true)]
-        #[tokio::test]
         async fn err_no_attestation_certs(#[case] header: &str, #[case] multi: bool) {
+            TRACING.call_once(init_tracing);
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -776,6 +654,7 @@ mod tests {
 
         #[tokio::test]
         async fn err_no_attestation_hostname() {
+            TRACING.call_once(init_tracing);
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -792,6 +671,7 @@ mod tests {
         #[case(true)]
         #[tokio::test]
         async fn err_no_content_type(#[case] multi: bool) {
+            TRACING.call_once(init_tracing);
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -804,6 +684,7 @@ mod tests {
 
         #[tokio::test]
         async fn err_empty_body() {
+            TRACING.call_once(init_tracing);
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -816,6 +697,7 @@ mod tests {
 
         #[tokio::test]
         async fn err_bad_body() {
+            TRACING.call_once(init_tracing);
             let request = Request::builder()
                 .method("POST")
                 .uri("/")
@@ -828,6 +710,7 @@ mod tests {
 
         #[tokio::test]
         async fn err_bad_csr_sig() {
+            TRACING.call_once(init_tracing);
             let mut cr = cr(SECP_256_R_1, vec![], true);
             let last = cr.last_mut().unwrap();
             *last = last.wrapping_add(1); // Modify the signature...
@@ -862,9 +745,9 @@ mod tests {
 
         const DEFAULT_CONFIG: &str = include_str!("../../../testdata/steward.toml");
         const ICELAKE_CSR: &[u8] =
-            include_bytes!("../../../crates/attestation/src/sgx/icelake.signed.csr");
+            include_bytes!("../../../crates/attestation/src/sgx/icelake.signed.crl.csr");
         const MILAN_CSR: &[u8] =
-            include_bytes!("../../../crates/attestation/src/snp/milan.signed.csr");
+            include_bytes!("../../../crates/attestation/src/snp/milan.signed.crl.csr");
 
         fn assert_sgx_config(
             csr: &CertReq<'_>,
@@ -885,7 +768,7 @@ mod tests {
                             .collect::<Result<Vec<_>, _>>()?;
 
                         // Validate the report.
-                        let pck = sgx.trusted(&chain)?;
+                        let pck = sgx.trusted(&chain, &quote.crls)?;
                         let report = quote.verify(pck)?;
                         sgx.verify(&csr.info, &ext, Some(conf), false)?;
                     }

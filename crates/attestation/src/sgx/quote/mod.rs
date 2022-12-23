@@ -15,27 +15,37 @@ pub mod es256;
 pub mod qe;
 pub mod traits;
 
-use super::super::crypto::TbsCertificateExt;
+use super::super::crypto::{CrlList, TbsCertificateExt};
 use body::Body;
 use traits::{FromBytes, ParseBytes, Steal};
 
 use anyhow::anyhow;
-use der::Encode;
+use der::{Decode, Encode, Sequence};
 use p256::ecdsa::signature::Verifier;
 use sgx::ReportBody;
 use sha2::{digest::DynDigest, Sha256};
 use x509::TbsCertificate;
 
+#[derive(Sequence)]
+struct SgxEvidence<'a> {
+    #[asn1(type = "OCTET STRING")]
+    quote: &'a [u8],
+    crl: CrlList<'a>,
+}
+
 pub struct Quote<'a> {
     body: &'a Body,
     sign: es256::SignatureData<'a>,
+    pub crls: CrlList<'a>,
 }
 
 impl<'a> FromBytes<'a> for Quote<'a> {
     type Error = anyhow::Error;
 
     fn from_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), Self::Error> {
-        let (body, bytes): (&Body, _) = bytes.parse()?;
+        let evidence = SgxEvidence::from_der(bytes)?;
+
+        let (body, bytes): (&Body, _) = evidence.quote.parse()?;
 
         if body.version() != 3 {
             return Err(anyhow!("unsupported quote version"));
@@ -50,8 +60,9 @@ impl<'a> FromBytes<'a> for Quote<'a> {
         }
 
         let (sign, bytes) = bytes.parse()?;
+        let crls = evidence.crl;
 
-        Ok((Quote { body, sign }, bytes))
+        Ok((Quote { body, sign, crls }, bytes))
     }
 }
 

@@ -5,12 +5,13 @@ use super::*;
 
 use std::time::SystemTime;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use const_oid::db::rfc5280::{ID_CE_BASIC_CONSTRAINTS, ID_CE_KEY_USAGE};
 use der::asn1::BitStringRef;
 use der::{Decode, Encode};
 use sec1::pkcs8::{AlgorithmIdentifier, ObjectIdentifier, PrivateKeyInfo};
-use x509::ext::pkix::{BasicConstraints, KeyUsage, KeyUsages};
+use x509::ext::pkix::name::{DistributionPointName, GeneralName};
+use x509::ext::pkix::{BasicConstraints, CrlDistributionPoints, KeyUsage, KeyUsages};
 use x509::ext::Extension;
 use x509::{Certificate, TbsCertificate};
 
@@ -56,6 +57,9 @@ pub trait TbsCertificateExt<'a> {
     /// child of the parent certificate. This includes additional field
     /// validation as well as default extension validation.
     fn verify_crt<'r, 'c>(&self, cert: &'r Certificate<'c>) -> Result<&'r TbsCertificate<'c>>;
+
+    /// Parse the `TbsCertificate` and get the URLs for the CRL(s), if any.
+    fn get_crl_urls(&self) -> Result<Vec<String>>;
 }
 
 impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
@@ -201,5 +205,41 @@ impl<'a> TbsCertificateExt<'a> for TbsCertificate<'a> {
         })?;
 
         Ok(&cert.tbs_certificate)
+    }
+
+    fn get_crl_urls(&self) -> Result<Vec<String>> {
+        const CRL_EXTN: ObjectIdentifier = const_oid::db::rfc5912::ID_CE_CRL_DISTRIBUTION_POINTS;
+        let mut urls_vec: Vec<String> = Vec::new();
+
+        if let Some(extensions) = self.extensions.as_ref() {
+            for ext in extensions.iter() {
+                if ext.extn_id == CRL_EXTN {
+                    let urls = CrlDistributionPoints::from_der(ext.extn_value)?;
+                    for url in urls.0 {
+                        if let Some(dist_pt) = url.distribution_point {
+                            match dist_pt {
+                                DistributionPointName::FullName(names) => {
+                                    for name in names {
+                                        match name {
+                                            GeneralName::UniformResourceIdentifier(uri) => {
+                                                urls_vec.push(uri.to_string());
+                                            }
+                                            x => {
+                                                bail!("unsupported {:?}", x);
+                                            }
+                                        }
+                                    }
+                                }
+                                x => {
+                                    bail!("unsupported {:?}", x);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(urls_vec)
     }
 }
