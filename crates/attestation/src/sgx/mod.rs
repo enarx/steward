@@ -5,15 +5,14 @@ pub mod config;
 pub mod quote;
 
 use crate::crypto::*;
+use crate::sgx::config::Config;
 use quote::traits::ParseBytes;
 
 use std::fmt::Debug;
 
-use crate::sgx::config::Config;
 use anyhow::{bail, ensure, Result};
 use const_oid::ObjectIdentifier;
 use der::{Decode, Encode};
-use sha2::{Digest, Sha256};
 use x509::{ext::Extension, request::CertReqInfo, Certificate, TbsCertificate};
 
 #[derive(Clone, Debug)]
@@ -84,7 +83,7 @@ impl Sgx {
 
         if !dbg {
             // Validate that the certification request came from an SGX enclave.
-            let hash = Sha256::digest(cri.public_key.to_vec()?);
+            let hash = sha256(cri.public_key.to_vec()?)?;
             ensure!(
                 hash.as_slice() == &rpt.reportdata[..hash.as_slice().len()],
                 "sgx report data is invalid"

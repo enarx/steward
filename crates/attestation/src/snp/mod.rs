@@ -4,6 +4,7 @@
 pub mod config;
 
 use self::config::Config;
+use super::crypto::sha384;
 use super::crypto::TbsCertificateExt;
 
 use std::{fmt::Debug, mem::size_of};
@@ -17,7 +18,6 @@ use flagset::{flags, FlagSet};
 use sec1::pkcs8::AlgorithmIdentifier;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha384};
 use x509::ext::Extension;
 use x509::{request::CertReqInfo, Certificate};
 use x509::{PkiPath, TbsCertificate};
@@ -384,7 +384,7 @@ impl Snp {
 
         if !dbg {
             // Validate that the certification request came from an SNP VM.
-            let hash = Sha384::digest(cri.public_key.to_vec()?);
+            let hash = sha384(cri.public_key.to_vec()?)?;
             ensure!(
                 hash.as_slice() == &report.body.report_data[..hash.as_slice().len()],
                 "snp report.report_data is invalid"

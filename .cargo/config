@@ -1,5 +1,13 @@
+[env]
+RUST_BACKTRACE = "1"
+WASMTIME_BACKTRACE_DETAILS = "1"
+
+[build]
+target = "wasm32-wasi"
+
 [target.wasm32-wasi]
 rustflags = ["--cfg", "tokio_unstable"]
-runner = ["wasmtime", "run", "--env", "FD_COUNT=4", "--tcplisten", "0.0.0.0:3000", "--"]
+# runner = ["wasmtime", "run", "--env", "FD_COUNT=4", "--tcplisten", "0.0.0.0:3000", "--"]
 # Put this back when Enarx is able to receive TCP configuation from the command line.
 # runner = ["enarx", "run", "--wasmcfgfile", "Enarx.toml"]
+runner = ["/home/rjzak/bin/wasmtime-wasi-crypto", "--wasi-modules", "experimental-wasi-crypto", "--"]
