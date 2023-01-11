@@ -340,7 +340,7 @@ fn attest_request(
         signature,
         issuer: issuer.tbs_certificate.subject.clone(),
         validity: *validity,
-        subject: RdnSequence(Vec::new()),
+        subject: info.subject,
         subject_public_key_info: info.public_key,
         issuer_unique_id: issuer.tbs_certificate.subject_unique_id,
         subject_unique_id: None,
