@@ -41,9 +41,9 @@ connections.
 
 ## Design Materials
 
-[Attestation Concept](https://hackmd.io/@enarx/r1Yg2kb_s)
-[Attestation Flow](https://hackmd.io/@enarx/SySK2_tHo)
-[Full Provisioning Flow with Attestation](https://hackmd.io/@enarx/rJ55urrvo)
+- [Attestation Concept](https://hackmd.io/@enarx/r1Yg2kb_s)
+- [Attestation Flow](https://hackmd.io/@enarx/SySK2_tHo)
+- [Full Provisioning Flow](https://hackmd.io/@enarx/rJ55urrvo)
 
 ## Licensing and Copyright
 
