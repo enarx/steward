@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use crate::crypto::{SubjectPublicKeyInfoExt, TbsCertificateExt};
+use std::collections::HashSet;
 
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{bail, Context, Result};
 use der::{Encode, Sequence};
+use tracing::debug;
 use x509::crl::CertificateList;
-use x509::name::Name;
 use x509::PkiPath;
 
 #[derive(Clone, Debug, Eq, PartialEq, Sequence)]
@@ -29,15 +30,6 @@ impl<'a> CrlList<'a> {
         }
         None
     }
-
-    fn get_crl_by_issuer(&self, issuer: &Name) -> Option<&CertificateList> {
-        for pair in &self.crls {
-            if &pair.crl.tbs_cert_list.issuer == issuer {
-                return Some(&pair.crl);
-            }
-        }
-        None
-    }
 }
 
 pub trait PkiPathCRLCheck<'a> {
@@ -48,6 +40,7 @@ impl<'a> PkiPathCRLCheck<'a> for PkiPath<'a> {
     fn check_crl(&self, pairs: &CrlList<'a>) -> Result<()> {
         // We want to ensure that a valid CRL was passed, so we make sure at least one of the CRLs
         // is valid for this `PkiPath`, otherwise, no valid CRLs were received, and that's not okay.
+        let mut validated_crls = HashSet::new();
         let mut found = false;
         let mut iter = self.iter().peekable();
         loop {
@@ -57,56 +50,67 @@ impl<'a> PkiPathCRLCheck<'a> for PkiPath<'a> {
                 break;
             }
             let cert = cert.unwrap();
-            let next = next.unwrap();
+            let next = *next.unwrap();
 
-            let crls = {
-                let mut crls = vec![];
-                if let Some(crl) = pairs.get_crl_by_issuer(&cert.tbs_certificate.subject) {
-                    crls.push(crl);
-                } else {
-                    let urls = cert.tbs_certificate.get_crl_urls()?;
-                    for url in urls {
-                        if let Some(crl) = pairs.get_crl_by_url(&url) {
-                            crls.push(crl);
-                        }
-                    }
+            let (url, crl) = {
+                let mut urls = next.tbs_certificate.get_crl_urls()?;
+                // Some end certs use the parent cert CRL
+                if urls.is_empty() {
+                    urls = cert.tbs_certificate.get_crl_urls()?;
                 }
 
-                crls
+                if let Some(crl) = pairs.get_crl_by_url(&urls[0]) {
+                    (urls[0].clone(), crl)
+                } else {
+                    debug!("No CRLS");
+                    continue;
+                }
             };
 
-            ensure!(!crls.is_empty(), "Certificate had no CRL URLs");
+            if let Some(next_update) = crl.tbs_cert_list.next_update {
+                if next_update.to_system_time() <= std::time::SystemTime::now() {
+                    // Don't error on CRL expiration in unit tests
+                    #[cfg(not(debug_assertions))]
+                    bail!("CRL expired");
+                    #[cfg(debug_assertions)]
+                    debug!("CRL {} expired.", crl.tbs_cert_list.issuer);
+                }
+            }
 
-            for crl in crls {
-                if let Some(next_update) = crl.tbs_cert_list.next_update {
-                    if next_update.to_system_time() <= std::time::SystemTime::now() {
-                        // Don't error on CRL expiration in unit tests
-                        #[cfg(not(debug_assertions))]
-                        bail!("CRL expired");
-                        #[cfg(debug_assertions)]
-                        eprintln!("CRL {} expired.", crl.tbs_cert_list.issuer);
+            if validated_crls.contains(&url) {
+                // Using the parent cert CRL
+                // Should only be for AMD.
+                debug_assert!(!crl.tbs_cert_list.issuer.to_string().contains("AMD"));
+                if let Some(revocations) = crl.tbs_cert_list.revoked_certificates.as_ref() {
+                    for revoked in revocations {
+                        if revoked.serial_number == next.tbs_certificate.serial_number {
+                            bail!("revoked!");
+                        }
                     }
                 }
+                found = true;
+                continue;
+            }
 
-                let raw_bytes = crl.tbs_cert_list.to_vec().unwrap();
-                match cert.tbs_certificate.subject_public_key_info.verify(
-                    &raw_bytes,
-                    cert.signature_algorithm,
-                    crl.signature.raw_bytes(),
-                ) {
-                    Ok(_) => {
-                        if let Some(revocations) = crl.tbs_cert_list.revoked_certificates.as_ref() {
-                            for revoked in revocations {
-                                if revoked.serial_number == next.tbs_certificate.serial_number {
-                                    bail!("revoked!");
-                                }
+            let raw_bytes = crl.tbs_cert_list.to_vec().unwrap();
+            match cert.tbs_certificate.subject_public_key_info.verify(
+                &raw_bytes,
+                cert.signature_algorithm,
+                crl.signature.raw_bytes(),
+            ) {
+                Ok(_) => {
+                    if let Some(revocations) = crl.tbs_cert_list.revoked_certificates.as_ref() {
+                        for revoked in revocations {
+                            if revoked.serial_number == next.tbs_certificate.serial_number {
+                                bail!("revoked!");
                             }
                         }
-                        found = true;
                     }
-                    Err(e) => {
-                        return Err(e).context("CRL validation error");
-                    }
+                    found = true;
+                    validated_crls.insert(url);
+                }
+                Err(e) => {
+                    return Err(e).context("CRL validation error");
                 }
             }
         }
@@ -204,7 +208,7 @@ mod tests {
                 },
                 x509::ext::Extension {
                     extn_id: const_oid::db::rfc5912::ID_CE_CRL_DISTRIBUTION_POINTS,
-                    critical: true,
+                    critical: false,
                     extn_value: &crl_dist,
                 },
             ]),
@@ -250,6 +254,16 @@ mod tests {
             not_after: Time::GeneralTime(GeneralizedTime::from_system_time(now + dur).unwrap()),
         };
 
+        let crl_dist = CrlDistributionPoints(vec![DistributionPoint {
+            distribution_point: Some(DistributionPointName::FullName(vec![
+                GeneralName::UniformResourceIdentifier(Ia5StringRef::new(TEST_URL).unwrap()),
+            ])),
+            reasons: None,
+            crl_issuer: None,
+        }]);
+
+        let crl_dist = crl_dist.to_vec().unwrap();
+
         // Create the certificate body.
         let tbs = TbsCertificate {
             version: x509::Version::V3,
@@ -271,6 +285,11 @@ mod tests {
                     extn_id: ID_CE_BASIC_CONSTRAINTS,
                     critical: true,
                     extn_value: &bc,
+                },
+                x509::ext::Extension {
+                    extn_id: const_oid::db::rfc5912::ID_CE_CRL_DISTRIBUTION_POINTS,
+                    critical: false,
+                    extn_value: &crl_dist,
                 },
             ]),
         };

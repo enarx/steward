@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-#![allow(unused_variables, unused_imports)] // temporary until CRL validation enabled
-
 pub mod config;
 
 use self::config::Config;
@@ -254,9 +252,9 @@ impl Snp {
 
             if let Some(signer) = signer {
                 if signer == &vcek.tbs_certificate {
-                    //let mut path = path;
-                    //path.push(vcek.clone());
-                    //path.check_crl(&certs.crl)?;
+                    let mut path = path;
+                    path.push(vcek.clone());
+                    path.check_crl(&certs.crl)?;
                     return Ok(&vcek.tbs_certificate);
                 }
             }

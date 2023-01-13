@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-#![allow(unused_variables, unused_imports)] // temporary until CRL validation enabled
-
 pub mod config;
 pub mod quote;
 
@@ -17,6 +15,7 @@ use const_oid::ObjectIdentifier;
 use der::{Decode, Encode};
 use sgx::pck::SgxExtension;
 use sha2::{Digest, Sha256};
+#[cfg(debug_assertions)]
 use tracing::debug;
 use x509::{ext::Extension, request::CertReqInfo, Certificate, PkiPath, TbsCertificate};
 
@@ -44,7 +43,7 @@ impl Sgx {
             signer = signer.verify_crt(cert)?;
         }
 
-        //PkiPath::from(chain).check_crl(crls)?;
+        PkiPath::from(chain).check_crl(crls)?;
 
         Ok(signer)
     }
@@ -96,7 +95,7 @@ impl Sgx {
         // Parse the TCB certificate chain
         let tcb_chain = &quote.tcb.certs;
         ensure!(chain[0] == tcb_chain[0], "sgx TCB root not SGX root");
-        let tcb_signer = self.trusted(tcb_chain, &quote.crls)?;
+        self.trusted(tcb_chain, &quote.crls)?;
 
         // Validate TCB report
         tcb_chain[1]
