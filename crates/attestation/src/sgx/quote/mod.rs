@@ -24,7 +24,6 @@ use traits::{FromBytes, ParseBytes, Steal};
 use anyhow::anyhow;
 use der::{Decode, Encode, Sequence};
 use p256::ecdsa::signature::Verifier;
-use rustls_pemfile::ec_private_keys;
 use sgx::ReportBody;
 use sha2::{digest::DynDigest, Sha256};
 use tcb::{TcbInfo, TcbRoot};

@@ -1,9 +1,6 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use std::cmp::Ordering;
-use std::time::SystemTime;
-
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 
