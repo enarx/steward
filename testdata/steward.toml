@@ -1,9 +1,10 @@
 [sgx]
-signer = ["c88de47bcb4c199a599c5ea0ab43bf4f4292071a16ea96c840409d95c4f98480"]
-hash = ["c2d4e5ac5ccfeeec41f44431c1af4f6878388d86300896125fc60143d30e67bd"]
+signer = ["7a49a07df0f8e90a6e1d9a63e3c696d9c844f0e3f8739b21daa640f99facc48a"]
+hash = ["4046ea255f0455131a024e1265ac1ebd131fdbd1240f1712a00381f6f04e8c15"]
 features = ["Debug", "ProvisioningKey", "EInitKey", "KSS"]
 enclave_security_version = 0
 enclave_product_id = 0
+allowed_advisories = ["INTEL-SA-00289", "INTEL-SA-00381", "INTEL-SA-00389", "INTEL-SA-00477", "INTEL-SA-00586", "INTEL-SA-00614", "INTEL-SA-00615", "INTEL-SA-00617", "INTEL-SA-00657"]
 
 [snp]
 signer = ["7dc22240a8344fce6ba5f22ffbedabc52d4123ae0ba1c59796e521b953916b503f223b15c4429e7d8c5489ad71f1e193"]

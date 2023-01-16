@@ -12,6 +12,7 @@ snp = ["dep:flagset", "dep:semver"]
 
 [dependencies]
 anyhow = { workspace = true, features = ["std"] }
+chrono = { workspace = true, features = ["clock", "serde", "std"] }
 const-oid = { workspace = true }
 der = { workspace = true, features = ["std"] }
 flagset = { workspace = true, optional = true }
@@ -24,10 +25,12 @@ rustls-pemfile = { workspace = true, optional = true }
 sec1 = { workspace = true, features = ["std", "pkcs8"] }
 semver = { workspace = true, features = ["serde"], optional = true }
 serde = { workspace = true, features = ["derive", "std"] }
-sgx = { workspace = true, optional = true }
+serde_json = { workspace = true, features = ["alloc"] }
+sgx = { workspace = true, features = ["rcrypto"], optional = true }
 sha2 = { workspace = true }
 signature = { workspace = true}
 spki = { workspace = true }
+tracing = { workspace = true }
 x509 = { workspace = true, features = ["std"] }
 zeroize = { workspace = true, features = ["alloc"] }
 

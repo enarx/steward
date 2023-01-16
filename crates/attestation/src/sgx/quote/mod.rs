@@ -13,6 +13,7 @@
 pub mod body;
 pub mod es256;
 pub mod qe;
+pub mod tcb;
 pub mod traits;
 
 use super::super::crypto::{CrlList, TbsCertificateExt};
@@ -22,21 +23,48 @@ use traits::{FromBytes, ParseBytes, Steal};
 use anyhow::anyhow;
 use der::{Decode, Encode, Sequence};
 use p256::ecdsa::signature::Verifier;
+use rustls_pemfile::ec_private_keys;
 use sgx::ReportBody;
 use sha2::{digest::DynDigest, Sha256};
-use x509::TbsCertificate;
+use signature::Signature;
+use tcb::{TcbInfo, TcbRoot};
+use x509::{Certificate, TbsCertificate};
+
+#[derive(Sequence)]
+struct TcbPackage<'a> {
+    crts: Vec<Certificate<'a>>,
+    #[asn1(type = "OCTET STRING")]
+    report: &'a [u8],
+}
 
 #[derive(Sequence)]
 struct SgxEvidence<'a> {
     #[asn1(type = "OCTET STRING")]
     quote: &'a [u8],
     crl: CrlList<'a>,
+    tcb: TcbPackage<'a>,
+}
+
+pub struct Tcb<'a> {
+    /// Parsed structure of the Intel TCB report to ensure updated firmware
+    pub report: TcbInfo,
+    /// Bytes of the Intel TCB report to validate the TCB report signature
+    pub bytes: Vec<u8>,
+    /// Bytes of the Intel TCB report signature for validation
+    pub sign: Vec<u8>,
+    /// Intel TCB signing certificates
+    pub certs: Vec<Certificate<'a>>,
 }
 
 pub struct Quote<'a> {
+    /// Body of the SGX attestation report
     body: &'a Body,
+    /// Signature for the SGX attestation report
     sign: es256::SignatureData<'a>,
+    /// Intel CRLs
     pub crls: CrlList<'a>,
+    /// TCB report items
+    pub tcb: Tcb<'a>,
 }
 
 impl<'a> FromBytes<'a> for Quote<'a> {
@@ -44,6 +72,29 @@ impl<'a> FromBytes<'a> for Quote<'a> {
 
     fn from_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), Self::Error> {
         let evidence = SgxEvidence::from_der(bytes)?;
+
+        // Get the string version of the TCB body before sorting to avoid breaking the signature
+        let tcb_size = evidence.tcb.report.len();
+        let tcb_bytes = Vec::from(&evidence.tcb.report[11..tcb_size - 144]);
+        let tcb_bytes = String::from_utf8(tcb_bytes).unwrap();
+
+        let tcb_root: TcbRoot = serde_json::from_slice(evidence.tcb.report)?;
+        let tcb_signature = hex::decode(tcb_root.signature)
+            .map_err(|_| anyhow::Error::msg("Failed to convert TCB signature to bytes"))?;
+
+        // Convert the signature to DER, as that's the expected format in spki.rs for validation.
+        let tcb_signature = p256::ecdsa::Signature::from_bytes(&tcb_signature)?;
+        let tcb_signature = tcb_signature.to_der().to_bytes().to_vec();
+        let mut tcb_report = tcb_root.tcb_info;
+
+        // So that we can start with the most recent TCB PCESVN when validating
+        tcb_report
+            .tcb_levels
+            .sort_by(|l, r| l.tcb_date.cmp(&r.tcb_date).reverse());
+
+        // Reverse the certs so Intel's root is first, then the TCB cert.
+        let mut tcb_certificates = evidence.tcb.crts;
+        tcb_certificates.reverse();
 
         let (body, bytes): (&Body, _) = evidence.quote.parse()?;
 
@@ -62,7 +113,20 @@ impl<'a> FromBytes<'a> for Quote<'a> {
         let (sign, bytes) = bytes.parse()?;
         let crls = evidence.crl;
 
-        Ok((Quote { body, sign, crls }, bytes))
+        Ok((
+            Quote {
+                body,
+                sign,
+                crls,
+                tcb: Tcb {
+                    report: tcb_report,
+                    bytes: tcb_bytes.into_bytes(),
+                    sign: tcb_signature,
+                    certs: tcb_certificates,
+                },
+            },
+            bytes,
+        ))
     }
 }
 
