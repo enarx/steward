@@ -434,6 +434,7 @@ pub fn init_tracing() {
 #[cfg(test)]
 mod tests {
     use super::{init_tracing, Config};
+    use rstest::rstest;
     use std::sync::Once;
 
     static TRACING: Once = Once::new();
@@ -441,7 +442,7 @@ mod tests {
     mod attest {
         use super::super::kvm::Kvm;
         use super::super::{app, Output, State, BUNDLE, PKCS10};
-        use super::{init_tracing, TRACING};
+        use super::{init_tracing, rstest, TRACING};
 
         use attestation::crypto::{CertReqInfoExt, PrivateKeyInfoExt, TbsCertificateExt};
         use const_oid::db::rfc5912::{ID_EXTENSION_REQ, SECP_256_R_1};
@@ -456,7 +457,6 @@ mod tests {
         use http::header::CONTENT_TYPE;
         use http::{Request, StatusCode};
         use hyper::Body;
-        use rstest::rstest;
         use sec1::pkcs8::PrivateKeyInfo;
         use tower::ServiceExt; // for `app.oneshot()`
 
@@ -729,7 +729,7 @@ mod tests {
 
     // Unit tests for configuration
     mod config {
-        use super::{init_tracing, Config, TRACING};
+        use super::{init_tracing, rstest, Config, TRACING};
         use attestation::sgx::quote::traits::ParseBytes;
         use attestation::sgx::quote::Quote;
         use attestation::snp::{Evidence, PolicyFlags, Report, Snp};
@@ -744,10 +744,17 @@ mod tests {
         use x509::Certificate;
 
         const DEFAULT_CONFIG: &str = include_str!("../../../testdata/steward.toml");
-        const ICELAKE_CSR: &[u8] =
-            include_bytes!("../../../crates/attestation/src/sgx/icelake.signed.crl.csr");
+        const ICELAKE_XEON_CSR: &[u8] = include_bytes!(
+            "../../../crates/attestation/src/sgx/icelake.signed.tcb.crl.multi.xeon.csr"
+        );
+        const ICELAKE_I5_CSR: &[u8] = include_bytes!(
+            "../../../crates/attestation/src/sgx/icelake.signed.tcb.crl.single.i5.csr"
+        );
         const MILAN_CSR: &[u8] =
             include_bytes!("../../../crates/attestation/src/snp/milan.signed.crl.csr");
+
+        // Matches what's in `testdata/steward.toml`
+        const SIGNER: &str = "7a49a07df0f8e90a6e1d9a63e3c696d9c844f0e3f8739b21daa640f99facc48a";
 
         fn assert_sgx_config(
             csr: &CertReq<'_>,
@@ -859,6 +866,7 @@ mod tests {
                 enclave_security_version: None,
                 enclave_product_id: None,
                 misc_select: MiscSelect::default(),
+                allowed_advisories: Default::default(),
             };
 
             let steward = Config {
@@ -869,10 +877,13 @@ mod tests {
             assert_eq!(config, steward);
         }
 
+        #[rstest]
+        #[case(ICELAKE_XEON_CSR)]
+        #[case(ICELAKE_I5_CSR)]
         #[test]
-        fn test_sgx_signed_canned_csr() {
+        fn test_sgx_signed_canned_csr(#[case] csr: &[u8]) {
             TRACING.call_once(init_tracing);
-            let csr = CertReq::from_der(ICELAKE_CSR).unwrap();
+            let csr = CertReq::from_der(csr).unwrap();
             let config: Config = toml::from_str(DEFAULT_CONFIG).expect("Couldn't deserialize");
             assert_sgx_config(&csr, &config.sgx.unwrap()).unwrap();
         }
@@ -880,31 +891,53 @@ mod tests {
         #[test]
         fn test_sgx_signed_csr_bad_config_signer() {
             TRACING.call_once(init_tracing);
-            let csr = CertReq::from_der(ICELAKE_CSR).unwrap();
+            let csr = CertReq::from_der(ICELAKE_I5_CSR).unwrap();
             let config: Config = toml::from_str(
                 r#"
             [sgx]
-            signer = ["2eba0f494f428e799c22d6f12778aebea4dc8d991f9e63fd3cddd57ac6eb5dd9"]
+            signer = ["00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF"]
             "#,
             )
             .expect("Couldn't deserialize");
-
-            assert!(assert_sgx_config(&csr, &config.sgx.unwrap()).is_err());
+            let error = assert_sgx_config(&csr, &config.sgx.unwrap()).err().unwrap();
+            assert_eq!(
+                error.to_string(),
+                format!("sgx untrusted enarx signer {SIGNER}")
+            );
         }
 
         #[test]
         fn test_sgx_signed_csr_bad_config_enclave_version() {
-            let csr = CertReq::from_der(ICELAKE_CSR).unwrap();
-            let config: Config = toml::from_str(
+            let csr = CertReq::from_der(ICELAKE_I5_CSR).unwrap();
+            let config: Config = toml::from_str(&*format!(
                 r#"
             [sgx]
-            signer = ["c8dc9fe36caaeef871e6512c481092754c57c2ea999f128282ccb563d1602774"]
+            signer = ["{SIGNER}"]
             enclave_security_version = 9999
             "#,
-            )
+            ))
             .expect("Couldn't deserialize");
 
-            assert!(assert_sgx_config(&csr, &config.sgx.unwrap()).is_err());
+            let error = assert_sgx_config(&csr, &config.sgx.unwrap()).err().unwrap();
+            assert_eq!(error.to_string(), "sgx untrusted enclave security version");
+        }
+
+        #[test]
+        fn test_sgx_signed_csr_extra_tcb_advisories() {
+            let csr = CertReq::from_der(ICELAKE_I5_CSR).unwrap();
+            let config: Config = toml::from_str(&*format!(
+                r#"
+            [sgx]
+            signer = ["{SIGNER}"]
+            allowed_advisories = ["bogus-1234"]
+            "#,
+            ))
+            .expect("Couldn't deserialize");
+
+            let error = assert_sgx_config(&csr, &config.sgx.unwrap()).err().unwrap();
+            assert!(error
+                .to_string()
+                .starts_with("sgx TCB report has additional advisories"));
         }
 
         #[test]

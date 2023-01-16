@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use super::super::Measurements;
+use std::collections::HashSet;
 
 use serde::{Deserialize, Deserializer};
 use sgx::parameters::{Features, MiscSelect};
@@ -53,6 +54,10 @@ pub struct Config {
     #[serde(default)]
     #[serde(deserialize_with = "from_misc_select")]
     pub misc_select: MiscSelect,
+
+    /// Allowed Intel advisories when validating the Intel TCB report
+    #[serde(default)]
+    pub allowed_advisories: HashSet<String>,
 }
 
 fn from_features<'de, D>(deserializer: D) -> Result<Features, D::Error>
