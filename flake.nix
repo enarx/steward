@@ -1,7 +1,7 @@
 {
   description = "Profian Steward";
 
-  inputs.enarx.url = github:enarx/enarx;
+  inputs.enarx.url = github:enarx/enarx/v0.7.1;
   inputs.nixify.url = github:rvolosatovs/nixify;
 
   outputs = {
