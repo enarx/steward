@@ -38,7 +38,7 @@ sha2 = { version = "^0.10.2", default-features = false }
 signature = {version = "1.6", default-features = false }
 spki = { version = "0.6", default-features = false }
 testaso = { version = "0.1", default-features = false }
-tokio = { version = "^1.24.2", default-features = false }
+tokio = { version = "^1.25.0", default-features = false }
 toml = { version = "0.5", default-features = false }
 tower = { version = "^0.4.11", default-features = false }
 tower-http = { version = "^0.3.5", default-features = false }
