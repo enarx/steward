@@ -60,7 +60,7 @@ impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
             }
 
             ((RSA, None), (ID_RSASSA_PSS, Some(p))) => {
-                use signature::{Signature, Verifier};
+                use signature::Verifier;
                 // Decompose the RSA PSS parameters.
                 let RsaSsaPssParams {
                     hash_algorithm: hash,
@@ -70,7 +70,7 @@ impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
                 } = p.decode_into()?;
 
                 let pkey = rsa::RsaPublicKey::from_pkcs1_der(self.subject_public_key)?;
-                let s = rsa::pss::Signature::from_bytes(sign)?;
+                let s = rsa::pss::Signature::from(Box::from(sign));
 
                 // Validate the sanity of the mask algorithm.
                 let algo = match (mask.oid, mask.parameters) {

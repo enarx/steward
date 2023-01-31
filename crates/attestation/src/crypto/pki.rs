@@ -94,16 +94,18 @@ impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
         match (self.algorithm.oids()?, algo) {
             ((ECPK, Some(P256)), ES256) => {
                 use p256::ecdsa::signature::Signer;
-                let private_key = p256::SecretKey::from_be_bytes(ec.private_key)?;
-                let sign_key = p256::ecdsa::SigningKey::from(private_key);
-                Ok(sign_key.sign(body).to_der().as_bytes().to_vec())
+                use p256::ecdsa::Signature;
+                let sign_key = p256::ecdsa::SigningKey::from_bytes(ec.private_key)?;
+                let signed: Signature = sign_key.sign(body);
+                Ok(signed.to_der().as_bytes().to_vec())
             }
 
             ((ECPK, Some(P384)), ES384) => {
                 use p384::ecdsa::signature::Signer;
-                let private_key = p384::SecretKey::from_be_bytes(ec.private_key)?;
-                let sign_key = p384::ecdsa::SigningKey::from(private_key);
-                Ok(sign_key.sign(body).to_der().as_bytes().to_vec())
+                use p384::ecdsa::Signature;
+                let sign_key = p384::ecdsa::SigningKey::from_bytes(ec.private_key)?;
+                let signed: Signature = sign_key.sign(body);
+                Ok(signed.to_der().as_bytes().to_vec())
             }
 
             _ => bail!("unsupported"),
