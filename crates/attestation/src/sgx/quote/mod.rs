@@ -18,6 +18,7 @@ pub mod traits;
 
 use super::super::crypto::{CrlList, TbsCertificateExt};
 use body::Body;
+use std::str::FromStr;
 use traits::{FromBytes, ParseBytes, Steal};
 
 use anyhow::anyhow;
@@ -26,7 +27,6 @@ use p256::ecdsa::signature::Verifier;
 use rustls_pemfile::ec_private_keys;
 use sgx::ReportBody;
 use sha2::{digest::DynDigest, Sha256};
-use signature::Signature;
 use tcb::{TcbInfo, TcbRoot};
 use x509::{Certificate, TbsCertificate};
 
@@ -79,11 +79,9 @@ impl<'a> FromBytes<'a> for Quote<'a> {
         let tcb_bytes = String::from_utf8(tcb_bytes).unwrap();
 
         let tcb_root: TcbRoot = serde_json::from_slice(evidence.tcb.report)?;
-        let tcb_signature = hex::decode(tcb_root.signature)
-            .map_err(|_| anyhow::Error::msg("Failed to convert TCB signature to bytes"))?;
 
         // Convert the signature to DER, as that's the expected format in spki.rs for validation.
-        let tcb_signature = p256::ecdsa::Signature::from_bytes(&tcb_signature)?;
+        let tcb_signature = p256::ecdsa::Signature::from_str(&tcb_root.signature)?;
         let tcb_signature = tcb_signature.to_der().to_bytes().to_vec();
         let mut tcb_report = tcb_root.tcb_info;
 
