@@ -42,7 +42,7 @@ signature = {version = "2.0.0", default-features = false }
 spki = { version = "0.6", default-features = false }
 testaso = { version = "0.1", default-features = false }
 tokio = { version = "^1.25.0", default-features = false }
-toml = { version = "0.7.1", default-features = false }
+toml = { version = "0.7.2", default-features = false }
 tower = { version = "^0.4.11", default-features = false }
 tower-http = { version = "^0.3.5", default-features = false }
 tracing = { version = "^0.1.29", default-features = false }
