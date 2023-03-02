@@ -29,7 +29,7 @@ memoffset = { version = "0.8.0", default-features = false }
 p256 = { version = "0.12.0", default-features = false }
 p384 = { version = "0.12.0", default-features = false }
 rand = { version = "0.8", default-features = false }
-rsa = { version = "0.8.1", default-features = false }
+rsa = { version = "0.8.2", default-features = false }
 rstest = { version = "0.16", default-features = false }
 rustls-pemfile = {version = "1.0.2", default-features = false }
 sec1 = { version = "0.3", default-features = false }
