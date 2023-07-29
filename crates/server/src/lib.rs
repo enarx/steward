@@ -217,7 +217,7 @@ pub fn app(state: State) -> Router {
         .layer(Extension(Arc::new(state)))
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(SpanMaker::default())
+                .make_span_with(SpanMaker)
                 .on_request(DefaultOnRequest::new().level(Level::INFO))
                 .on_response(
                     DefaultOnResponse::new()
