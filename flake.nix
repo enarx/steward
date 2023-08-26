@@ -1,7 +1,7 @@
 {
   description = "Profian Steward";
 
-  inputs.enarx.url = github:enarx/enarx/v0.7.1;
+  inputs.enarx.url = github:enarx/enarx/23-08-26; # TODO: Switch to `main` or a release once https://github.com/enarx/enarx/pull/2545 merged
   inputs.nixify.url = github:rvolosatovs/nixify;
 
   outputs = {
@@ -27,7 +27,6 @@
         ];
 
         overlays = [
-          enarx.overlays.rust
           enarx.overlays.default
         ];
 
