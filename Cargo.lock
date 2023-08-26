@@ -631,8 +631,8 @@ checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
 
 [[package]]
 name = "hyper"
-version = "0.14.23"
-source = "git+https://github.com/rjzak/hyper?branch=wasi_wip#9a4db8a07bd9c2514be1eebaafc708896139f001"
+version = "0.14.27"
+source = "git+https://github.com/rjzak/hyper?branch=wasi_wip#d4900a049f2c38b648023e651e1e83d63d010f6b"
 dependencies = [
  "bytes",
  "futures-channel",
