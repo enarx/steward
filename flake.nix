@@ -1,12 +1,10 @@
 {
   description = "Profian Steward";
 
-  inputs.enarx.url = github:enarx/enarx/23-08-26; # TODO: Switch to `main` or a release once https://github.com/enarx/enarx/pull/2545 merged
   inputs.nixify.url = github:rvolosatovs/nixify;
 
   outputs = {
     self,
-    enarx,
     nixify,
     ...
   }:
@@ -26,10 +24,6 @@
           "/rust-toolchain.toml"
         ];
 
-        overlays = [
-          enarx.overlays.default
-        ];
-
         clippy.allFeatures = true;
         clippy.allTargets = true;
         clippy.deny = ["warnings"];
@@ -41,7 +35,6 @@
         }:
           extendDerivations {
             buildInputs = [
-              pkgs.enarx
               pkgs.openssl
               pkgs.wasmtime
             ];
