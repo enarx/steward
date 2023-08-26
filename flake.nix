@@ -14,7 +14,7 @@
       rust.mkFlake {
         src = ./.;
 
-        ignorePaths = [
+        excludePaths = [
           "/.github"
           "/.gitignore"
           "/deny.toml"
