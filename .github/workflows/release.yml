@@ -102,7 +102,7 @@ jobs:
     - run: podman manifest inspect steward:manifest
     - name: metadata
       id: metadata
-      uses: docker/metadata-action@v4
+      uses: docker/metadata-action@v5
       with:
         images: ghcr.io/profianinc/steward
         tags: |
