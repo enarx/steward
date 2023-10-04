@@ -28,7 +28,7 @@ jobs:
 
         - host: ubuntu-latest
           target: wasm32-wasi
-          test-bin: nix run --inputs-from . 'nixpkgs#wasmtime' ./result/bin/steward -- --help
+          test-bin: nix run --inputs-from . 'nixpkgs#wasmtime' ./result/bin/steward.wasm -- --help
           test-oci: docker load < ./result
           # TODO: Execute the WASM binary within OCI
 
