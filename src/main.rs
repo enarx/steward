@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 
 //!
 //! # Overview
@@ -46,9 +46,9 @@
 //! - [Attestation Flow](https://hackmd.io/@enarx/SySK2_tHo)
 //! - [Full Provisioning Flow](https://hackmd.io/@enarx/rJ55urrvo)
 //!
-//! # Licensing and Copyright
+//! # Licensing
 //!
-//! Contributions to this project require copyright assignment to Profian.
+//! Steward is released under the Apache-2.0 license.
 
 #![warn(rust_2018_idioms, unused_lifetimes, unused_qualifications, clippy::all)]
 

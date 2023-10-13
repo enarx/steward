@@ -45,8 +45,8 @@ connections.
 - [Attestation Flow](https://hackmd.io/@enarx/SySK2_tHo)
 - [Full Provisioning Flow](https://hackmd.io/@enarx/rJ55urrvo)
 
-## Licensing and Copyright
+## Licensing
 
-Contributions to this project require copyright assignment to Profian.
+Steward is released under the Apache-2.0 license.
 
-License: AGPL-3.0
+License: Apache-2.0

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 
 use super::{qe::QuotingEnclave, FromBytes, ParseBytes};
 
