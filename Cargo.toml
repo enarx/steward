@@ -6,7 +6,7 @@ sgx = { git = "https://github.com/enarx/sgx", rev = "c9bf274dd1a843b084bae92e182
 name = "steward"
 version = "0.2.0"
 edition = "2021"
-license = "AGPL-3.0"
+license = "Apache-2.0"
 
 [workspace.dependencies]
 # Internal dependencies

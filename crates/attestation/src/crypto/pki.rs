@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 
 use anyhow::{anyhow, bail, Result};
 use sec1::pkcs8::{EncodePrivateKey, ObjectIdentifier, PrivateKeyInfo, SubjectPublicKeyInfo};
