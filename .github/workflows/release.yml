@@ -53,7 +53,7 @@ jobs:
 
     - run: nix build -L --show-trace '.#steward-${{ matrix.platform.target }}'
     - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result/bin/steward "steward-${{ matrix.platform.target }}"
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: steward-${{ matrix.platform.target }}
         path: steward-${{ matrix.platform.target }}
@@ -61,7 +61,7 @@ jobs:
 
     - run: nix build -L --show-trace '.#steward-${{ matrix.platform.target }}-oci'
     - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result "steward-${{ matrix.platform.target }}-oci"
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: steward-${{ matrix.platform.target }}-oci
         path: steward-${{ matrix.platform.target }}-oci
