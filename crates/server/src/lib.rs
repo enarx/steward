@@ -356,8 +356,8 @@ fn attest_request(
 /// ASN.1 SEQUENCE OF Output.
 pub async fn attest(
     TypedHeader(ct): TypedHeader<ContentType>,
-    body: Bytes,
     Extension(state): Extension<Arc<State>>,
+    body: Bytes,
 ) -> Result<Vec<u8>, impl IntoResponse> {
     // Decode the signing certificate and key.
     let issuer = Certificate::from_der(&state.crt).or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
@@ -443,6 +443,7 @@ mod tests {
         use super::super::kvm::Kvm;
         use super::super::{app, Output, State, BUNDLE, PKCS10};
         use super::{init_tracing, rstest, TRACING};
+        use axum::body::Body;
 
         use attestation::crypto::{CertReqInfoExt, PrivateKeyInfoExt, TbsCertificateExt};
         use const_oid::db::rfc5912::{ID_EXTENSION_REQ, SECP_256_R_1};
@@ -456,7 +457,6 @@ mod tests {
         use axum::response::Response;
         use http::header::CONTENT_TYPE;
         use http::{Request, StatusCode};
-        use hyper::Body;
         use sec1::pkcs8::PrivateKeyInfo;
         use tower::ServiceExt; // for `app.oneshot()`
 
