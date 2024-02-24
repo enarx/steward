@@ -1,4 +1,4 @@
-name: Update
+name: Update Nix flake
 
 on:
   schedule:
@@ -7,23 +7,8 @@ on:
 
 jobs:
   nix-update:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: nixbuild/nix-quick-install-action@v26
-        with:
-          nix_conf: |
-            experimental-features = nix-command flakes
-            access-tokens = github.com=${{ github.token }}
-      - uses: jessestricker/nix-flake-update@v1
-        id: nix-update
-      - uses: peter-evans/create-pull-request@v6
-        with:
-          branch: nix-update
-          commit-message: "build(nix): update flake lock"
-          title: "build(nix): update flake lock"
-          body: ${{ steps.nix-update.outputs.pull-request-body }}
-          labels: dependencies, nix
-          assignees: |
-            rvolosatovs
-          signoff: true
+    permissions:
+      contents: write
+      pull-requests: write
+    secrets: inherit
+    uses: enarx/.github/.github/workflows/nix-update.yml@main
