@@ -3,6 +3,8 @@ name = "steward-server"
 version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
+homepage = "https://github.com/enarx/steward"
+repository = "https://github.com/enarx/steward"
 description = "Server library for Steward"
 
 [dependencies]
