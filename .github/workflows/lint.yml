@@ -8,15 +8,9 @@ jobs:
     - name: Setup Rust toolchain
       run: rustup show
     - name: cargo fmt
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: -- --check
+      run: cargo fmt --all -- --check
     - name: cargo clippy
-      uses: actions-rs/cargo@v1
-      with:
-        command: clippy
-        args: --workspace --all-features -- -D warnings
+      run: cargo clippy --workspace --all-features --tests -- -D warnings
 
   nix-fmt:
     name: nix fmt

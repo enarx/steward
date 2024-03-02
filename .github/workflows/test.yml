@@ -8,10 +8,7 @@ jobs:
     - name: Setup Rust toolchain
       run: rustup show
     - name: cargo test
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
-        args: --workspace --all-features
+      run: cargo test --workspace --all-features
 
   wasi:
     runs-on: ubuntu-latest
@@ -29,7 +26,4 @@ jobs:
       - name: Check wasmtime version
         run: wasmtime --version
       - name: cargo test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --workspace --all-features --target=wasm32-wasi
+        run: cargo test --workspace --all-features --target=wasm32-wasi

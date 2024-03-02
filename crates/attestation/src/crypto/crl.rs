@@ -156,7 +156,7 @@ mod tests {
         let rdns = RdnSequence::from_der(&rdns).unwrap();
 
         // Create the extensions.
-        let ku = KeyUsage((KeyUsages::KeyCertSign | KeyUsages::CRLSign).into())
+        let ku = KeyUsage(KeyUsages::KeyCertSign | KeyUsages::CRLSign)
             .to_vec()
             .unwrap();
         let bc = BasicConstraints {
@@ -267,7 +267,7 @@ mod tests {
         // Create the certificate body.
         let tbs = TbsCertificate {
             version: x509::Version::V3,
-            serial_number: cert_serial.clone(),
+            serial_number: *cert_serial,
             signature: pki.signs_with().unwrap(),
             issuer: rdns_issuer,
             validity,
@@ -315,19 +315,17 @@ mod tests {
         let rdns = RdnSequence::encode_from_string(TEST_ISSUER).unwrap();
         let rdns = RdnSequence::from_der(&rdns).unwrap();
 
-        let revoked = if let Some(serial) = cert_serial {
-            Some(vec![RevokedCert {
-                serial_number: serial,
+        let revoked = cert_serial.map(|s| {
+            vec![RevokedCert {
+                serial_number: s,
                 revocation_date: yesterday,
                 crl_entry_extensions: None,
-            }])
-        } else {
-            None
-        };
+            }]
+        });
 
         let tbs_cert = TbsCertList {
             version: Default::default(),
-            signature: ca_cert.signature_algorithm.clone(),
+            signature: ca_cert.signature_algorithm,
             issuer: rdns,
             this_update: yesterday,
             next_update: None,
@@ -336,15 +334,12 @@ mod tests {
         };
 
         let signature = ca_pki
-            .sign(
-                &tbs_cert.to_vec().unwrap(),
-                ca_cert.signature_algorithm.clone(),
-            )
+            .sign(&tbs_cert.to_vec().unwrap(), ca_cert.signature_algorithm)
             .unwrap();
 
         let crl = CertificateList {
             tbs_cert_list: tbs_cert,
-            signature_algorithm: ca_cert.signature_algorithm.clone(),
+            signature_algorithm: ca_cert.signature_algorithm,
             signature: BitStringRef::from_bytes(&signature).unwrap(),
         };
 
