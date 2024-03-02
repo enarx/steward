@@ -909,7 +909,7 @@ mod tests {
         #[test]
         fn test_sgx_signed_csr_bad_config_enclave_version() {
             let csr = CertReq::from_der(ICELAKE_I5_CSR).unwrap();
-            let config: Config = toml::from_str(&*format!(
+            let config: Config = toml::from_str(&format!(
                 r#"
             [sgx]
             signer = ["{SIGNER}"]
@@ -925,7 +925,7 @@ mod tests {
         #[test]
         fn test_sgx_signed_csr_extra_tcb_advisories() {
             let csr = CertReq::from_der(ICELAKE_I5_CSR).unwrap();
-            let config: Config = toml::from_str(&*format!(
+            let config: Config = toml::from_str(&format!(
                 r#"
             [sgx]
             signer = ["{SIGNER}"]
