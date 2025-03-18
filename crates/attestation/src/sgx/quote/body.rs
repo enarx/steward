@@ -63,7 +63,7 @@ impl<'a> FromBytes<'a> for &'a Body {
 
     fn from_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), Self::Error> {
         let (body, bytes): (&[u8; size_of::<Body>()], _) = bytes.parse()?;
-        let body = unsafe { transmute(body) };
+        let body = unsafe { transmute::<&[u8; 432], &Body>(body) };
         Ok((body, bytes))
     }
 }

@@ -17,7 +17,7 @@ impl<'a> FromBytes<'a> for &'a ReportBody {
 
     fn from_bytes(bytes: &'a [u8]) -> Result<(Self, &'a [u8]), Self::Error> {
         let (report, bytes): (&[u8; size_of::<ReportBody>()], _) = bytes.parse()?;
-        Ok((unsafe { transmute(report) }, bytes))
+        Ok((unsafe { transmute::<&[u8; 384], &ReportBody>(report) }, bytes))
     }
 }
 

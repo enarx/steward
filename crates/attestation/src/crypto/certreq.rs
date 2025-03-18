@@ -38,7 +38,7 @@ pub trait CertReqInfoExt {
     fn sign(self, pki: &PrivateKeyInfo<'_>) -> Result<Vec<u8>>;
 }
 
-impl<'a> CertReqInfoExt for CertReqInfo<'a> {
+impl CertReqInfoExt for CertReqInfo<'_> {
     fn sign(self, pki: &PrivateKeyInfo<'_>) -> Result<Vec<u8>> {
         let algo = pki.signs_with()?;
         let body = self.to_vec()?;

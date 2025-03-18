@@ -21,7 +21,7 @@ pub struct CrlList<'a> {
     pub crls: Vec<CrlListEntry<'a>>,
 }
 
-impl<'a> CrlList<'a> {
+impl CrlList<'_> {
     fn get_crl_by_url(&self, url: &str) -> Option<&CertificateList> {
         for pair in &self.crls {
             if pair.url == url {

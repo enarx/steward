@@ -42,7 +42,7 @@ pub trait SubjectPublicKeyInfoExt {
     fn verify(&self, body: &[u8], algo: AlgorithmIdentifier<'_>, signature: &[u8]) -> Result<()>;
 }
 
-impl<'a> SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'a> {
+impl SubjectPublicKeyInfoExt for SubjectPublicKeyInfo<'_> {
     fn verify(&self, body: &[u8], algo: AlgorithmIdentifier<'_>, sign: &[u8]) -> Result<()> {
         match (self.algorithm.oids()?, (algo.oid, algo.parameters)) {
             ((ECPK, Some(P256)), ES256) => {

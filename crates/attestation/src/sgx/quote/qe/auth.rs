@@ -8,7 +8,7 @@ use std::array::TryFromSliceError;
 #[derive(Clone, Debug)]
 pub struct Data<'a>(&'a [u8]);
 
-impl<'a> AsRef<[u8]> for Data<'a> {
+impl AsRef<[u8]> for Data<'_> {
     fn as_ref(&self) -> &[u8] {
         self.0
     }

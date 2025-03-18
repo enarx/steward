@@ -48,7 +48,7 @@ pub trait PrivateKeyInfoExt {
     fn sign(&self, body: &[u8], algo: AlgorithmIdentifier<'_>) -> Result<Vec<u8>>;
 }
 
-impl<'a> PrivateKeyInfoExt for PrivateKeyInfo<'a> {
+impl PrivateKeyInfoExt for PrivateKeyInfo<'_> {
     fn generate(oid: ObjectIdentifier) -> Result<Zeroizing<Vec<u8>>> {
         let rand = rand::thread_rng();
 
