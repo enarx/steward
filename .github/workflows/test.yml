@@ -4,7 +4,7 @@ jobs:
   native:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Setup Rust toolchain
       run: rustup show
     - name: cargo test
@@ -13,7 +13,7 @@ jobs:
   wasi:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Rust toolchain
         run: rustup show
       # Put this back when Enarx is able to receive TCP configuation from the command line.
